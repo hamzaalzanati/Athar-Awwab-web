@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لوحة تحكم أثر أواب</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+:root{
+  --ink:#05081c; --navy:#0a1038; --navy-2:#111a4d; --line:rgba(243,241,232,.1);
+  --teal:#1CA9D6; --gold:#e3b23c; --paper:#f3f1e8; --paper-dim:rgba(243,241,232,.66);
+  --danger:#e5484d; --success:#2fb344;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:'Segoe UI',Tahoma,sans-serif;min-height:100vh;}
+.locked{display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:20px;}
+.locked i{font-size:40px;color:var(--danger);margin-bottom:14px;display:block;}
+#app{display:none;}
+header{position:sticky;top:0;background:rgba(5,8,28,.95);border-bottom:1px solid var(--line);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;z-index:10;}
+header b{font-size:15px;}
+nav{display:flex;gap:6px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--line);}
+nav button{background:var(--navy-2);border:1px solid var(--line);color:var(--paper-dim);padding:8px 14px;border-radius:999px;font-size:12.5px;white-space:nowrap;cursor:pointer;}
+nav button.active{background:var(--teal);color:#04151c;font-weight:600;border-color:var(--teal);}
+main{padding:16px;}
+.tab{display:none;}
+.tab.active{display:block;}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px;}
+.stat-card{background:var(--navy);border:1px solid var(--line);border-radius:12px;padding:16px;text-align:center;}
+.stat-card b{display:block;font-size:24px;color:var(--teal);}
+.stat-card span{font-size:11px;color:var(--paper-dim);}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:12px;}
+input,textarea,select{background:var(--navy-2);border:1px solid var(--line);color:var(--paper);border-radius:8px;padding:9px 12px;font-size:13px;width:100%;font-family:inherit;}
+.list-item{background:var(--navy);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
+.list-item .top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.list-item b{font-size:13.5px;}
+.list-item small{color:var(--paper-dim);font-size:11.5px;display:block;margin-top:3px;}
+.btn{background:var(--teal);color:#04151c;border:none;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;font-weight:600;}
+.btn.danger{background:var(--danger);color:#fff;}
+.btn.success{background:var(--success);color:#fff;}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--paper);}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.empty{text-align:center;color:var(--paper-dim);font-size:12.5px;padding:30px 0;}
+.tag-pill{display:inline-block;font-size:10.5px;background:var(--gold);color:#241a03;padding:2px 8px;border-radius:999px;margin-inline-start:6px;}
+#userDetail{display:none;}
+.field-label{font-size:11px;color:var(--paper-dim);margin:10px 0 4px;}
+</style>
+</head>
+<body>
+
+<div class="locked" id="lockedScreen">
+  <div>
+    <i class="fa-solid fa-lock"></i>
+    <p>جارِ التحقق من صلاحيتك...</p>
+  </div>
+</div>
+
+<div id="app">
+  <header><b>لوحة تحكم أثر أواب</b><span id="whoAmI" style="font-size:11px;color:var(--paper-dim);"></span></header>
+  <nav>
+    <button data-tab="overview" class="active">نظرة عامة</button>
+    <button data-tab="channels">القنوات</button>
+    <button data-tab="messages">الرسائل</button>
+    <button data-tab="requests">الطلبات</button>
+    <button data-tab="users">المستخدمين</button>
+  </nav>
+  <main>
+    <section class="tab active" id="tab-overview">
+      <div class="stat-grid" id="overviewStats"></div>
+    </section>
+
+    <section class="tab" id="tab-channels">
+      <input type="text" id="channelSearch" placeholder="ابحث في القنوات...">
+      <div class="btn-row" style="margin:10px 0;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--paper-dim);">
+          <input type="checkbox" id="selectAllChannels" style="width:auto;"> تحديد الكل
+        </label>
+        <button class="btn ghost" onclick="bulkAction('archived', true)">أرشفة المحدد</button>
+        <button class="btn ghost" onclick="bulkAction('archived', false)">إلغاء أرشفة المحدد</button>
+        <button class="btn ghost" onclick="location.href='/api/admin/channels-export'">تصدير CSV</button>
+        <button class="btn ghost" onclick="checkAdminHealth()">فحص صلاحيات الأدمن للكل</button>
+      </div>
+      <div id="channelsList" style="margin-top:12px;"></div>
+    </section>
+
+    <section class="tab" id="tab-messages">
+      <div id="messagesList"></div>
+    </section>
+
+    <section class="tab" id="tab-requests">
+      <div id="requestsList"></div>
+    </section>
+
+    <section class="tab" id="tab-users">
+      <div id="usersListView">
+        <input type="text" id="userSearch" placeholder="ابحث بالاسم أو اليوزر...">
+        <div id="usersList" style="margin-top:12px;"></div>
+      </div>
+      <div id="userDetail"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if(tg){ tg.ready(); tg.expand(); }
+const initData = tg?.initData || "";
+
+async function api(path, opts={}){
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "Content-Type":"application/json", "X-Telegram-Init-Data": initData, ...(opts.headers||{}) }
+  });
+  if(!res.ok) throw new Error("api_error_"+res.status);
+  return res.json();
+}
+
+async function boot(){
+  try{
+    const check = await api("/api/admin/verify");
+    document.getElementById("lockedScreen").style.display = "none";
+    document.getElementById("app").style.display = "block";
+    document.getElementById("whoAmI").textContent = check.user?.first_name || "";
+    loadOverview();
+  }catch(e){
+    document.getElementById("lockedScreen").innerHTML = `<div><i class="fa-solid fa-lock"></i><p>مفيش صلاحية وصول — افتح اللوحة من زرار /admin داخل البوت بحسابك المعتمد.</p></div>`;
+  }
+}
+
+document.querySelectorAll("nav button").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));
+    document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-"+btn.dataset.tab).classList.add("active");
+    if(btn.dataset.tab==="channels") loadChannels();
+    if(btn.dataset.tab==="messages") loadMessages();
+    if(btn.dataset.tab==="requests") loadRequests();
+    if(btn.dataset.tab==="users"){ document.getElementById("userDetail").style.display="none"; document.getElementById("usersListView").style.display="block"; loadUsers(); }
+  });
+});
+
+/* ---------- نظرة عامة ---------- */
+async function loadOverview(){
+  const s = await api("/api/admin/overview");
+  document.getElementById("overviewStats").innerHTML = `
+    <div class="stat-card"><b>${s.channels}</b><span>قناة وبوت نشط</span></div>
+    <div class="stat-card"><b>${s.newMessages}</b><span>رسالة جديدة</span></div>
+    <div class="stat-card"><b>${s.pendingRequests}</b><span>طلب اعتماد معلّق</span></div>
+    <div class="stat-card"><b>${s.totalUsers}</b><span>مستخدم مسجّل بالبوت</span></div>
+  `;
+}
+
+/* ---------- القنوات ---------- */
+let allChannels = [];
+async function loadChannels(){
+  allChannels = await api("/api/admin/channels");
+  renderChannels(allChannels);
+}
+function healthDot(c){
+  if(c.archived) return '<span style="color:var(--paper-dim);">●</span>';
+  if(c.health === false) return '<span style="color:var(--danger);" title="فقد صلاحية الأدمن">●</span>';
+  return '<span style="color:var(--success);" title="سليمة">●</span>';
+}
+function renderChannels(list){
+  const box = document.getElementById("channelsList");
+  if(!list.length){ box.innerHTML = `<div class="empty">مفيش قنوات مسجّلة لسه</div>`; return; }
+  box.innerHTML = list.map(c => `
+    <div class="list-item">
+      <div class="top">
+        <label style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" class="channelCheck" value="${c.id}" style="width:auto;">
+          ${healthDot(c)} <b>${c.name}</b>
+        </label>
+        <span style="font-size:11px;color:var(--paper-dim)">${c.subscriber_count ?? "—"} مشترك</span>
+      </div>
+      <small>${c.category || ""} ${c.archived ? '<span class="tag-pill">مؤرشفة</span>' : ""}</small>
+      <div class="btn-row">
+        <select onchange="setPostsMode(${c.id}, this.value)">
+          <option value="auto" ${c.posts_mode==='auto'?'selected':''}>تحديث تلقائي للمنشورات</option>
+          <option value="frozen" ${c.posts_mode==='frozen'?'selected':''}>إيقاف التحديث (آخر منشور فقط)</option>
+          <option value="manual" ${c.posts_mode==='manual'?'selected':''}>روابط يدوية</option>
+        </select>
+        <button class="btn ${c.archived?'success':'ghost'}" onclick="toggleArchive(${c.id}, ${!c.archived})">${c.archived ? 'إلغاء الأرشفة' : 'أرشفة'}</button>
+      </div>
+    </div>
+  `).join("");
+}
+document.getElementById("channelSearch").addEventListener("input", (e)=>{
+  const q = e.target.value.toLowerCase();
+  renderChannels(allChannels.filter(c => (c.name||"").toLowerCase().includes(q)));
+});
+document.getElementById("selectAllChannels").addEventListener("change", (e)=>{
+  document.querySelectorAll(".channelCheck").forEach(cb => cb.checked = e.target.checked);
+});
+function selectedChannelIds(){
+  return [...document.querySelectorAll(".channelCheck:checked")].map(cb => Number(cb.value));
+}
+async function bulkAction(field, value){
+  const ids = selectedChannelIds();
+  if(!ids.length) return alert("حدّد قنوات الأول");
+  const r = await api("/api/admin/channels-bulk", {method:"POST", body:JSON.stringify({ids, field, value})});
+  alert(`اتعدّل ${r.updated} من ${r.total}`);
+  loadChannels();
+}
+async function checkAdminHealth(){
+  const r = await api("/api/admin/channels-check-admin");
+  alert(`اتفحصت ${r.checked} قناة — ${r.unhealthy.length} فقدوا صلاحية الأدمن`);
+  loadChannels();
+}
+async function setPostsMode(id, mode){ await api(`/api/admin/channels/${id}`, {method:"PATCH", body:JSON.stringify({posts_mode:mode})}); }
+async function toggleArchive(id, val){ await api(`/api/admin/channels/${id}`, {method:"PATCH", body:JSON.stringify({archived:val})}); loadChannels(); }
+
+/* ---------- الرسائل ---------- */
+async function loadMessages(){
+  const msgs = await api("/api/admin/messages");
+  const box = document.getElementById("messagesList");
+  if(!msgs.length){ box.innerHTML = `<div class="empty">مفيش رسائل</div>`; return; }
+  box.innerHTML = msgs.map(m => `
+    <div class="list-item">
+      <div class="top"><b>${m.name}</b><span style="font-size:11px;color:${m.status==='new'?'var(--gold)':'var(--paper-dim)'}">${m.status}</span></div>
+      <small>${m.contact || ""}</small>
+      <p style="font-size:12.5px;margin:8px 0;">${m.message}</p>
+      ${m.status==='new' ? `<button class="btn ghost" onclick="markRead(${m.id})">علّمها مقروءة</button>` : ""}
+    </div>
+  `).join("");
+}
+async function markRead(id){ await api(`/api/admin/messages/${id}`, {method:"PATCH", body:JSON.stringify({status:"read"})}); loadMessages(); }
+
+/* ---------- طلبات اعتماد قنوات جديدة ---------- */
+async function loadRequests(){
+  const reqs = await api("/api/admin/requests");
+  const box = document.getElementById("requestsList");
+  if(!reqs.length){ box.innerHTML = `<div class="empty">مفيش طلبات معلّقة</div>`; return; }
+  box.innerHTML = reqs.map(r => `
+    <div class="list-item">
+      <b>${r.title || r.chat_id}</b><small>${r.type} · ${r.chat_id}</small>
+      <div class="btn-row">
+        <button class="btn success" onclick="handleRequest(${r.chat_id},'approve')">اعتماد</button>
+        <button class="btn danger" onclick="handleRequest(${r.chat_id},'reject')">رفض</button>
+      </div>
+    </div>
+  `).join("");
+}
+async function handleRequest(chatId, action){ await api(`/api/admin/requests/${chatId}/${action}`, {method:"POST"}); loadRequests(); }
+
+/* ---------- المستخدمين + الملف الشخصي المتقدم ---------- */
+async function loadUsers(q=""){
+  const users = await api("/api/admin/users" + (q ? `?q=${encodeURIComponent(q)}` : ""));
+  const box = document.getElementById("usersList");
+  if(!users.length){ box.innerHTML = `<div class="empty">مفيش مستخدمين مسجّلين لسه</div>`; return; }
+  box.innerHTML = users.map(u => `
+    <div class="list-item" style="cursor:pointer" onclick="openUser(${u.telegram_id})">
+      <div class="top">
+        <b>${u.first_name || "بدون اسم"} ${u.username ? '@'+u.username : ''}</b>
+        ${u.manual_tag ? `<span class="tag-pill">${u.manual_tag}</span>` : ""}
+      </div>
+      <small>ID: ${u.telegram_id} · انضم ${new Date(u.joined_at).toLocaleDateString('ar-EG')}</small>
+    </div>
+  `).join("");
+}
+document.getElementById("userSearch").addEventListener("input", (e)=>loadUsers(e.target.value));
+
+async function openUser(id){
+  const u = await api(`/api/admin/users/${id}`);
+  document.getElementById("usersListView").style.display = "none";
+  const box = document.getElementById("userDetail");
+  box.style.display = "block";
+  box.innerHTML = `
+    <button class="btn ghost" onclick="document.getElementById('userDetail').style.display='none';document.getElementById('usersListView').style.display='block';">→ رجوع للقائمة</button>
+    <h3 style="margin:14px 0 4px;">${u.first_name || "بدون اسم"} ${u.username ? '@'+u.username : ''}</h3>
+    <small style="color:var(--paper-dim)">ID: ${u.telegram_id}</small>
+
+    <div class="field-label">تاريخ أول تفاعل</div>
+    <div>${new Date(u.joined_at).toLocaleString('ar-EG')}</div>
+
+    <div class="field-label">آخر نشاط</div>
+    <div>${new Date(u.last_active).toLocaleString('ar-EG')}</div>
+
+    <div class="field-label">عضو في (من قنواتك المُدارة)</div>
+    <div>${u.memberOf?.length ? u.memberOf.join('، ') : 'مش عضو في أي قناة مُدارة، أو البوت مش أدمن فيها'}</div>
+
+    <div class="field-label">اللغة</div>
+    <select onchange="patchUser(${u.telegram_id},{language:this.value})">
+      <option value="ar" ${u.language==='ar'?'selected':''}>عربي</option>
+      <option value="en" ${u.language==='en'?'selected':''}>English</option>
+    </select>
+
+    <div class="field-label">تصنيف يدوي</div>
+    <select onchange="patchUser(${u.telegram_id},{manual_tag:this.value})">
+      <option value="">بدون</option>
+      <option value="VIP" ${u.manual_tag==='VIP'?'selected':''}>VIP</option>
+      <option value="نشط" ${u.manual_tag==='نشط'?'selected':''}>نشط</option>
+      <option value="غير مهتم" ${u.manual_tag==='غير مهتم'?'selected':''}>غير مهتم</option>
+    </select>
+
+    <div class="field-label">ملاحظاتك الخاصة</div>
+    <textarea rows="3" onchange="patchUser(${u.telegram_id},{notes:this.value})">${u.notes || ""}</textarea>
+
+    <div class="field-label">تاريخ الميلاد (لو أضافه بنفسه)</div>
+    <input type="date" value="${u.birthday || ""}" onchange="patchUser(${u.telegram_id},{birthday:this.value})">
+
+    <div class="field-label">عدد البلاغات ضده</div>
+    <div>${u.reported_count || 0} ${u.reported_count>0 ? '<span class="tag-pill" style="background:var(--danger);color:#fff;">تنبيه</span>' : ''}</div>
+
+    <div class="field-label">نشاطه آخر 30 يوم</div>
+    <div>${u.activity?.length ? u.activity.length + ' يوم فيهم نشاط مسجّل' : 'مفيش بيانات كافية لسه'}</div>
+
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn ${u.is_pinned?'success':'ghost'}" onclick="patchUser(${u.telegram_id},{is_pinned:${!u.is_pinned}}, true)">${u.is_pinned ? 'إلغاء التثبيت' : 'تثبيت'}</button>
+      <button class="btn ghost" onclick="sendMsgPrompt(${u.telegram_id})">ابعتله رسالة</button>
+      <button class="btn ghost" onclick="reportUser(${u.telegram_id})">تسجيل بلاغ</button>
+      <button class="btn danger" onclick="banUser(${u.telegram_id})">حظر شامل من كل القنوات</button>
+    </div>
+  `;
+}
+async function patchUser(id, body, reload=false){ await api(`/api/admin/users/${id}`, {method:"PATCH", body:JSON.stringify(body)}); if(reload) openUser(id); }
+async function sendMsgPrompt(id){
+  const text = prompt("اكتب الرسالة:");
+  if(!text) return;
+  const r = await api(`/api/admin/users/${id}/message`, {method:"POST", body:JSON.stringify({text})});
+  alert(r.ok ? "اتبعتت" : "المستخدم مغلق البوت");
+}
+async function reportUser(id){ const r = await api(`/api/admin/users/${id}/report`, {method:"POST"}); alert("عدد البلاغات دلوقتي: "+r.reported_count); openUser(id); }
+async function banUser(id){
+  if(!confirm("متأكد؟ ده هيحظره من كل القنوات المُدارة دفعة واحدة.")) return;
+  const r = await api(`/api/admin/users/${id}/ban`, {method:"POST"});
+  alert(`تم الحظر في ${r.done} مكان، فشل في ${r.failed}`);
+}
+
+boot();
+</script>
+</body>
+</html>
