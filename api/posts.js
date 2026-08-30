@@ -1,5 +1,5 @@
-const { db } = require("../_lib/db");
-const { tg, BOT_TOKEN } = require("../_lib/telegram");
+const { db } = require("../lib/db");
+const { tg, BOT_TOKEN } = require("../lib/telegram");
 
 module.exports = async (req, res) => {
   const username = (req.query.username || "").replace("@", "");

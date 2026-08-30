@@ -71,14 +71,33 @@ input,textarea,select{background:var(--navy-2);border:1px solid var(--line);colo
 
     <section class="tab" id="tab-channels">
       <input type="text" id="channelSearch" placeholder="ابحث في القنوات...">
+      <div class="row" style="margin-top:8px;">
+        <select id="categoryFilter" style="flex:1;">
+          <option value="">كل الفئات</option>
+          <option value="quran">قرآن</option>
+          <option value="readers">قراء</option>
+          <option value="reminders">منبهات</option>
+          <option value="stickers">ملصقات</option>
+        </select>
+        <select id="sortBy" style="flex:1;">
+          <option value="">بدون ترتيب</option>
+          <option value="growth-desc">الأكثر متابعين</option>
+          <option value="growth-asc">الأقل متابعين</option>
+        </select>
+      </div>
       <div class="btn-row" style="margin:10px 0;">
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--paper-dim);">
           <input type="checkbox" id="selectAllChannels" style="width:auto;"> تحديد الكل
         </label>
         <button class="btn ghost" onclick="bulkAction('archived', true)">أرشفة المحدد</button>
         <button class="btn ghost" onclick="bulkAction('archived', false)">إلغاء أرشفة المحدد</button>
-        <button class="btn ghost" onclick="location.href='/api/admin/channels-export'">تصدير CSV</button>
+        <button class="btn ghost" onclick="location.href='/api/admin?action=channels-export'">تصدير CSV</button>
         <button class="btn ghost" onclick="checkAdminHealth()">فحص صلاحيات الأدمن للكل</button>
+        <button class="btn ghost" onclick="document.getElementById('importBox').style.display='block'">استيراد قنوات</button>
+      </div>
+      <div id="importBox" style="display:none;margin-bottom:12px;">
+        <textarea id="importJson" rows="4" placeholder='[{"name":"اسم القناة","url":"https://t.me/xxx","category":"quran"}]'></textarea>
+        <button class="btn success" style="margin-top:6px;" onclick="runImport()">استيراد</button>
       </div>
       <div id="channelsList" style="margin-top:12px;"></div>
     </section>
@@ -94,6 +113,11 @@ input,textarea,select{background:var(--navy-2);border:1px solid var(--line);colo
     <section class="tab" id="tab-users">
       <div id="usersListView">
         <input type="text" id="userSearch" placeholder="ابحث بالاسم أو اليوزر...">
+        <div class="btn-row" style="margin:10px 0;">
+          <button class="btn ghost" onclick="location.href='/api/admin?action=users-export'">تصدير الكل CSV</button>
+          <button class="btn ghost" onclick="location.href='/api/admin?action=users-export&tag=VIP'">تصدير VIP فقط</button>
+          <button class="btn ghost" onclick="location.href='/api/admin?action=users-export&tag=داعية'">تصدير الدعاة فقط</button>
+        </div>
         <div id="usersList" style="margin-top:12px;"></div>
       </div>
       <div id="userDetail"></div>
@@ -117,7 +141,7 @@ async function api(path, opts={}){
 
 async function boot(){
   try{
-    const check = await api("/api/admin/verify");
+    const check = await api("/api/admin?action=verify");
     document.getElementById("lockedScreen").style.display = "none";
     document.getElementById("app").style.display = "block";
     document.getElementById("whoAmI").textContent = check.user?.first_name || "";
@@ -142,7 +166,7 @@ document.querySelectorAll("nav button").forEach(btn=>{
 
 /* ---------- نظرة عامة ---------- */
 async function loadOverview(){
-  const s = await api("/api/admin/overview");
+  const s = await api("/api/admin?action=overview");
   document.getElementById("overviewStats").innerHTML = `
     <div class="stat-card"><b>${s.channels}</b><span>قناة وبوت نشط</span></div>
     <div class="stat-card"><b>${s.newMessages}</b><span>رسالة جديدة</span></div>
@@ -154,7 +178,7 @@ async function loadOverview(){
 /* ---------- القنوات ---------- */
 let allChannels = [];
 async function loadChannels(){
-  allChannels = await api("/api/admin/channels");
+  allChannels = await api("/api/admin?action=channels");
   renderChannels(allChannels);
 }
 function healthDot(c){
@@ -164,13 +188,15 @@ function healthDot(c){
 }
 function renderChannels(list){
   const box = document.getElementById("channelsList");
-  if(!list.length){ box.innerHTML = `<div class="empty">مفيش قنوات مسجّلة لسه</div>`; return; }
-  box.innerHTML = list.map(c => `
+  if(!list.length){ box.innerHTML = `<div class="empty">مفيش قنوات مطابقة</div>`; return; }
+  // القنوات المثبّتة (is_featured) تفضل فوق دايمًا (فكرة 25)
+  const sorted = [...list].sort((a,b)=> (b.is_featured?1:0) - (a.is_featured?1:0));
+  box.innerHTML = sorted.map(c => `
     <div class="list-item">
       <div class="top">
         <label style="display:flex;align-items:center;gap:8px;">
           <input type="checkbox" class="channelCheck" value="${c.id}" style="width:auto;">
-          ${healthDot(c)} <b>${c.name}</b>
+          ${healthDot(c)} <b>${c.name}</b> ${c.is_featured ? '<span class="tag-pill">مثبّتة</span>' : ''}
         </label>
         <span style="font-size:11px;color:var(--paper-dim)">${c.subscriber_count ?? "—"} مشترك</span>
       </div>
@@ -182,14 +208,37 @@ function renderChannels(list){
           <option value="manual" ${c.posts_mode==='manual'?'selected':''}>روابط يدوية</option>
         </select>
         <button class="btn ${c.archived?'success':'ghost'}" onclick="toggleArchive(${c.id}, ${!c.archived})">${c.archived ? 'إلغاء الأرشفة' : 'أرشفة'}</button>
+        <button class="btn ghost" onclick="toggleFeatured(${c.id}, ${!c.is_featured})">${c.is_featured ? 'إلغاء التثبيت' : 'تثبيت'}</button>
+        <a class="btn ghost" href="${c.url}" target="_blank">فتح في تليجرام</a>
       </div>
     </div>
   `).join("");
 }
-document.getElementById("channelSearch").addEventListener("input", (e)=>{
-  const q = e.target.value.toLowerCase();
-  renderChannels(allChannels.filter(c => (c.name||"").toLowerCase().includes(q)));
-});
+function applyFilters(){
+  const q = document.getElementById("channelSearch").value.toLowerCase();
+  const cat = document.getElementById("categoryFilter").value;
+  const sort = document.getElementById("sortBy").value;
+  let list = allChannels.filter(c =>
+    (!q || (c.name||"").toLowerCase().includes(q) || (c.description||"").toLowerCase().includes(q)) &&
+    (!cat || c.category === cat)
+  );
+  if(sort === "growth-desc") list.sort((a,b)=>(b.subscriber_count||0)-(a.subscriber_count||0));
+  if(sort === "growth-asc") list.sort((a,b)=>(a.subscriber_count||0)-(b.subscriber_count||0));
+  renderChannels(list);
+}
+document.getElementById("channelSearch").addEventListener("input", applyFilters);
+document.getElementById("categoryFilter").addEventListener("change", applyFilters);
+document.getElementById("sortBy").addEventListener("change", applyFilters);
+async function toggleFeatured(id, val){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({is_featured:val})}); loadChannels(); }
+async function runImport(){
+  let rows;
+  try{ rows = JSON.parse(document.getElementById("importJson").value); }
+  catch(e){ return alert("الصيغة غلط — لازم تكون JSON صحيح"); }
+  const r = await api("/api/admin?action=channels-import", {method:"POST", body:JSON.stringify({rows})});
+  alert(`اتضاف ${r.created}، فشل ${r.failed}`);
+  document.getElementById("importBox").style.display = "none";
+  loadChannels();
+}
 document.getElementById("selectAllChannels").addEventListener("change", (e)=>{
   document.querySelectorAll(".channelCheck").forEach(cb => cb.checked = e.target.checked);
 });
@@ -199,21 +248,21 @@ function selectedChannelIds(){
 async function bulkAction(field, value){
   const ids = selectedChannelIds();
   if(!ids.length) return alert("حدّد قنوات الأول");
-  const r = await api("/api/admin/channels-bulk", {method:"POST", body:JSON.stringify({ids, field, value})});
+  const r = await api("/api/admin?action=channels-bulk", {method:"POST", body:JSON.stringify({ids, field, value})});
   alert(`اتعدّل ${r.updated} من ${r.total}`);
   loadChannels();
 }
 async function checkAdminHealth(){
-  const r = await api("/api/admin/channels-check-admin");
+  const r = await api("/api/admin?action=channels-check-admin");
   alert(`اتفحصت ${r.checked} قناة — ${r.unhealthy.length} فقدوا صلاحية الأدمن`);
   loadChannels();
 }
-async function setPostsMode(id, mode){ await api(`/api/admin/channels/${id}`, {method:"PATCH", body:JSON.stringify({posts_mode:mode})}); }
-async function toggleArchive(id, val){ await api(`/api/admin/channels/${id}`, {method:"PATCH", body:JSON.stringify({archived:val})}); loadChannels(); }
+async function setPostsMode(id, mode){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({posts_mode:mode})}); }
+async function toggleArchive(id, val){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({archived:val})}); loadChannels(); }
 
 /* ---------- الرسائل ---------- */
 async function loadMessages(){
-  const msgs = await api("/api/admin/messages");
+  const msgs = await api("/api/admin?action=messages");
   const box = document.getElementById("messagesList");
   if(!msgs.length){ box.innerHTML = `<div class="empty">مفيش رسائل</div>`; return; }
   box.innerHTML = msgs.map(m => `
@@ -225,11 +274,11 @@ async function loadMessages(){
     </div>
   `).join("");
 }
-async function markRead(id){ await api(`/api/admin/messages/${id}`, {method:"PATCH", body:JSON.stringify({status:"read"})}); loadMessages(); }
+async function markRead(id){ await api(`/api/admin?action=message&id=${id}`, {method:"PATCH", body:JSON.stringify({status:"read"})}); loadMessages(); }
 
 /* ---------- طلبات اعتماد قنوات جديدة ---------- */
 async function loadRequests(){
-  const reqs = await api("/api/admin/requests");
+  const reqs = await api("/api/admin?action=requests");
   const box = document.getElementById("requestsList");
   if(!reqs.length){ box.innerHTML = `<div class="empty">مفيش طلبات معلّقة</div>`; return; }
   box.innerHTML = reqs.map(r => `
@@ -242,11 +291,11 @@ async function loadRequests(){
     </div>
   `).join("");
 }
-async function handleRequest(chatId, action){ await api(`/api/admin/requests/${chatId}/${action}`, {method:"POST"}); loadRequests(); }
+async function handleRequest(chatId, action){ await api(`/api/admin?action=request&chatId=${chatId}&decision=${action}`, {method:"POST"}); loadRequests(); }
 
 /* ---------- المستخدمين + الملف الشخصي المتقدم ---------- */
 async function loadUsers(q=""){
-  const users = await api("/api/admin/users" + (q ? `?q=${encodeURIComponent(q)}` : ""));
+  const users = await api("/api/admin?action=users" + (q ? `&q=${encodeURIComponent(q)}` : ""));
   const box = document.getElementById("usersList");
   if(!users.length){ box.innerHTML = `<div class="empty">مفيش مستخدمين مسجّلين لسه</div>`; return; }
   box.innerHTML = users.map(u => `
@@ -262,7 +311,7 @@ async function loadUsers(q=""){
 document.getElementById("userSearch").addEventListener("input", (e)=>loadUsers(e.target.value));
 
 async function openUser(id){
-  const u = await api(`/api/admin/users/${id}`);
+  const u = await api(`/api/admin?action=user&id=${id}`);
   document.getElementById("usersListView").style.display = "none";
   const box = document.getElementById("userDetail");
   box.style.display = "block";
@@ -279,6 +328,9 @@ async function openUser(id){
 
     <div class="field-label">عضو في (من قنواتك المُدارة)</div>
     <div>${u.memberOf?.length ? u.memberOf.join('، ') : 'مش عضو في أي قناة مُدارة، أو البوت مش أدمن فيها'}</div>
+
+    <div class="field-label">عدد اللي دعاهم عن طريق /invite</div>
+    <div>${u.referral_count || 0} ${u.referral_count >= 3 ? '<span class="tag-pill">داعية</span>' : ''}</div>
 
     <div class="field-label">اللغة</div>
     <select onchange="patchUser(${u.telegram_id},{language:this.value})">
@@ -314,17 +366,17 @@ async function openUser(id){
     </div>
   `;
 }
-async function patchUser(id, body, reload=false){ await api(`/api/admin/users/${id}`, {method:"PATCH", body:JSON.stringify(body)}); if(reload) openUser(id); }
+async function patchUser(id, body, reload=false){ await api(`/api/admin?action=user&id=${id}`, {method:"PATCH", body:JSON.stringify(body)}); if(reload) openUser(id); }
 async function sendMsgPrompt(id){
   const text = prompt("اكتب الرسالة:");
   if(!text) return;
-  const r = await api(`/api/admin/users/${id}/message`, {method:"POST", body:JSON.stringify({text})});
+  const r = await api(`/api/admin?action=user-message&id=${id}`, {method:"POST", body:JSON.stringify({text})});
   alert(r.ok ? "اتبعتت" : "المستخدم مغلق البوت");
 }
-async function reportUser(id){ const r = await api(`/api/admin/users/${id}/report`, {method:"POST"}); alert("عدد البلاغات دلوقتي: "+r.reported_count); openUser(id); }
+async function reportUser(id){ const r = await api(`/api/admin?action=user-report&id=${id}`, {method:"POST"}); alert("عدد البلاغات دلوقتي: "+r.reported_count); openUser(id); }
 async function banUser(id){
   if(!confirm("متأكد؟ ده هيحظره من كل القنوات المُدارة دفعة واحدة.")) return;
-  const r = await api(`/api/admin/users/${id}/ban`, {method:"POST"});
+  const r = await api(`/api/admin?action=user-ban&id=${id}`, {method:"POST"});
   alert(`تم الحظر في ${r.done} مكان، فشل في ${r.failed}`);
 }
 
