@@ -13,6 +13,7 @@
 const { requireAdmin } = require("../lib/auth");
 const { db } = require("../lib/db");
 const { tg, BOT_TOKEN } = require("../lib/telegram");
+const { askGemini, hasGemini } = require("../lib/gemini");
 
 module.exports = async (req, res) => {
   if (!requireAdmin(req, res)) return;
@@ -199,6 +200,40 @@ module.exports = async (req, res) => {
       const count = (cur.data?.[0]?.reported_count || 0) + 1;
       await db("bot_users", { method: "PATCH", query: `?telegram_id=eq.${req.query.id}`, body: { reported_count: count } });
       return res.status(200).json({ ok: true, reported_count: count });
+    }
+
+    /* ---------- الذكاء الاصطناعي (Gemini) — فكرة نمو 3، 5، 6، 7 ---------- */
+    if (action === "ai-suggest" && method === "POST") {
+      if (!hasGemini()) return res.status(503).json({ error: "محتاج GEMINI_API_KEY في إعدادات Vercel" });
+      const { type, name, context } = req.body || {};
+      const prompts = {
+        description: `اكتب وصف جذاب وقصير (سطر أو سطرين بالعربي) لقناة تليجرام دينية اسمها "${name}". السياق: ${context || "بدون سياق إضافي"}. رد بالوصف بس، من غير علامات اقتباس.`,
+        hashtags: `اقترح 5 هاشتاجات عربية مناسبة لمنشور عن: ${context || name}. رد بالهاشتاجات بس مفصولة بمسافة، من غير شرح.`,
+        summary: `لخّص النص التالي في جملة واحدة قصيرة بالعربي:\n${context}`
+      };
+      if (!prompts[type]) return res.status(400).json({ error: "type لازم يكون description أو hashtags أو summary" });
+      const result = await askGemini(prompts[type], "أنت مساعد كتابة لمشروع دعوي إسلامي. كن مختصرًا ومباشرًا، وتجنب أي محتوى غير لائق.");
+      return res.status(200).json({ suggestion: result || null });
+    }
+
+    if (action === "message-sentiment" && method === "POST") {
+      if (!hasGemini()) return res.status(503).json({ error: "محتاج GEMINI_API_KEY" });
+      const msgRes = await db("contact_messages", { query: `?id=eq.${req.query.id}&select=message` });
+      const text = msgRes.data?.[0]?.message;
+      if (!text) return res.status(404).json({ error: "الرسالة مش موجودة" });
+      const result = await askGemini(text, "حدد مشاعر الرسالة التالية. رد بكلمة واحدة بس: إيجابية أو سلبية أو محايدة.");
+      const sentiment = (result || "").trim();
+      await db("contact_messages", { method: "PATCH", query: `?id=eq.${req.query.id}`, body: { sentiment } });
+      return res.status(200).json({ sentiment });
+    }
+
+    /* ---------- نشر مستهدف لمجموعة مختارة (مش كل القنوات) — فكرة 3 ---------- */
+    if (action === "broadcast" && method === "POST") {
+      const { message, chatIds } = req.body || {};
+      if (!message) return res.status(400).json({ error: "محتاج message" });
+      const target = Array.isArray(chatIds) && chatIds.length ? chatIds.join(",") : "all";
+      const result = await db("broadcast_queue", { method: "POST", body: { message, target, status: "pending" } });
+      return res.status(200).json({ ok: !result.error });
     }
 
     res.status(404).json({ error: "action غير معروف: " + action });

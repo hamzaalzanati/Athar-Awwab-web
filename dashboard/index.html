@@ -93,6 +93,7 @@ input,textarea,select{background:var(--navy-2);border:1px solid var(--line);colo
         <button class="btn ghost" onclick="bulkAction('archived', false)">إلغاء أرشفة المحدد</button>
         <button class="btn ghost" onclick="location.href='/api/admin?action=channels-export'">تصدير CSV</button>
         <button class="btn ghost" onclick="checkAdminHealth()">فحص صلاحيات الأدمن للكل</button>
+        <button class="btn success" onclick="broadcastToSelected()">نشر رسالة للمحدد بس</button>
         <button class="btn ghost" onclick="document.getElementById('importBox').style.display='block'">استيراد قنوات</button>
       </div>
       <div id="importBox" style="display:none;margin-bottom:12px;">
@@ -257,6 +258,16 @@ async function checkAdminHealth(){
   alert(`اتفحصت ${r.checked} قناة — ${r.unhealthy.length} فقدوا صلاحية الأدمن`);
   loadChannels();
 }
+async function broadcastToSelected(){
+  const ids = selectedChannelIds();
+  if(!ids.length) return alert("حدّد قنوات الأول");
+  const chatIds = allChannels.filter(c => ids.includes(c.id) && c.chat_id).map(c => c.chat_id);
+  if(!chatIds.length) return alert("القنوات المحددة لسه مش متزامنة (chat_id فاضي) — استنى دورة المزامنة التالية أو زوّد قناة يدويًا.");
+  const message = prompt(`هتتبعت لـ ${chatIds.length} قناة محددة بس. اكتب الرسالة:`);
+  if(!message) return;
+  const r = await api("/api/admin?action=broadcast", {method:"POST", body:JSON.stringify({message, chatIds})});
+  alert(r.ok ? "اتضافت لطابور النشر، هتوصل خلال دقائق" : "حصل خطأ");
+}
 async function setPostsMode(id, mode){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({posts_mode:mode})}); }
 async function toggleArchive(id, val){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({archived:val})}); loadChannels(); }
 
@@ -267,14 +278,25 @@ async function loadMessages(){
   if(!msgs.length){ box.innerHTML = `<div class="empty">مفيش رسائل</div>`; return; }
   box.innerHTML = msgs.map(m => `
     <div class="list-item">
-      <div class="top"><b>${m.name}</b><span style="font-size:11px;color:${m.status==='new'?'var(--gold)':'var(--paper-dim)'}">${m.status}</span></div>
-      <small>${m.contact || ""}</small>
+      <div class="top">
+        <b>${m.name}</b>
+        <span style="font-size:11px;color:${m.status==='new'?'var(--gold)':'var(--paper-dim)'}">${m.status}</span>
+      </div>
+      <small>${m.contact || ""} ${m.sentiment ? `<span class="tag-pill">${m.sentiment}</span>` : ""}</small>
       <p style="font-size:12.5px;margin:8px 0;">${m.message}</p>
-      ${m.status==='new' ? `<button class="btn ghost" onclick="markRead(${m.id})">علّمها مقروءة</button>` : ""}
+      <div class="btn-row">
+        ${m.status==='new' ? `<button class="btn ghost" onclick="markRead(${m.id})">علّمها مقروءة</button>` : ""}
+        ${!m.sentiment ? `<button class="btn ghost" onclick="analyzeSentiment(${m.id})">حلّل المشاعر (AI)</button>` : ""}
+      </div>
     </div>
   `).join("");
 }
 async function markRead(id){ await api(`/api/admin?action=message&id=${id}`, {method:"PATCH", body:JSON.stringify({status:"read"})}); loadMessages(); }
+async function analyzeSentiment(id){
+  const r = await api(`/api/admin?action=message-sentiment&id=${id}`, {method:"POST"});
+  if(r.error) return alert(r.error);
+  loadMessages();
+}
 
 /* ---------- طلبات اعتماد قنوات جديدة ---------- */
 async function loadRequests(){
