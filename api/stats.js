@@ -22,7 +22,7 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || null;
 
 async function fetchFromSupabase() {
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/channels?archived=eq.false&select=url,name,description,subscriber_count,photo_url`,
+    `${SUPABASE_URL}/rest/v1/channels?archived=eq.false&select=url,name,description,subscriber_count,photo_url,is_new`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
   );
   if (!res.ok) throw new Error("supabase fetch failed");
@@ -37,7 +37,8 @@ async function fetchFromSupabase() {
       count: row.subscriber_count ?? null,
       name: row.name ?? null,
       desc: row.description ?? null,
-      photo: row.photo_url ?? null
+      photo: row.photo_url ?? null,
+      isNew: !!row.is_new
     };
     if (row.subscriber_count) total += row.subscriber_count;
   }

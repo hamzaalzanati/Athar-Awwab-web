@@ -210,6 +210,7 @@ function renderChannels(list){
         </select>
         <button class="btn ${c.archived?'success':'ghost'}" onclick="toggleArchive(${c.id}, ${!c.archived})">${c.archived ? 'إلغاء الأرشفة' : 'أرشفة'}</button>
         <button class="btn ghost" onclick="toggleFeatured(${c.id}, ${!c.is_featured})">${c.is_featured ? 'إلغاء التثبيت' : 'تثبيت'}</button>
+        <button class="btn ${c.is_new?'success':'ghost'}" onclick="toggleNew(${c.id}, ${!c.is_new})">${c.is_new ? 'إلغاء علامة جديد' : 'وضع علامة جديد'}</button>
         <a class="btn ghost" href="${c.url}" target="_blank">فتح في تليجرام</a>
       </div>
     </div>
@@ -231,6 +232,7 @@ document.getElementById("channelSearch").addEventListener("input", applyFilters)
 document.getElementById("categoryFilter").addEventListener("change", applyFilters);
 document.getElementById("sortBy").addEventListener("change", applyFilters);
 async function toggleFeatured(id, val){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({is_featured:val})}); loadChannels(); }
+async function toggleNew(id, val){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({is_new:val})}); loadChannels(); }
 async function runImport(){
   let rows;
   try{ rows = JSON.parse(document.getElementById("importJson").value); }
