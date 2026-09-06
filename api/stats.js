@@ -22,15 +22,15 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || null;
 
 async function fetchFromSupabase() {
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/channels?archived=eq.false&select=url,name,description,subscriber_count,photo_url,is_new`,
+    `${SUPABASE_URL}/rest/v1/channels?archived=eq.false&select=id,url,name,description,subscriber_count,photo_url,is_new,category,entity_type,bot_function,is_featured&order=sort_order.asc.nullslast`,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
   );
   if (!res.ok) throw new Error("supabase fetch failed");
-  const rows = await res.json();
+  const catalog = await res.json();
 
   const channels = {};
   let total = 0;
-  for (const row of rows) {
+  for (const row of catalog) {
     const m = row.url && row.url.match(/t\.me\/([A-Za-z0-9_]+)$/);
     if (!m) continue;
     channels[m[1]] = {
@@ -42,7 +42,22 @@ async function fetchFromSupabase() {
     };
     if (row.subscriber_count) total += row.subscriber_count;
   }
-  return { channels, total, source: "supabase" };
+
+  // إعداد عام واحد بس مسموح للموقع يقراه (البريد)، مفيش أي Secret هنا.
+  let contactEmail = null;
+  try {
+    const setRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_settings?key=eq.contact_email&select=value`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (setRes.ok) {
+      const rows = await setRes.json();
+      const v = rows?.[0]?.value;
+      contactEmail = (typeof v === "string" && v.trim()) ? v.trim() : null;
+    }
+  } catch (e) { /* غير حرج — الموقع يفضل شغال من غيره */ }
+
+  return { channels, catalog, total, source: "supabase", contactEmail };
 }
 
 /* ---------- خطة احتياطية: قراءة صفحات تليجرام العامة مباشرة (لو DB لسه مش متظبطة) ---------- */
@@ -114,8 +129,10 @@ module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=900");
   res.status(200).json({
     channels: result.channels,
+    catalog: result.catalog || [],
     total: result.total,
     source: result.source,
+    contactEmail: result.contactEmail || null,
     resolved: Object.keys(result.channels).length,
     updated: new Date().toISOString()
   });

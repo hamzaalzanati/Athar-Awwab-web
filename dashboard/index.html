@@ -9,8 +9,8 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
 :root{
-  --ink:#070b1f; --surface:#0d1330; --surface-2:#131a3d; --surface-3:#1a2249;
-  --line:rgba(232,236,255,.10); --text:#eef0fb; --text-dim:rgba(238,240,251,.66); --text-faint:rgba(238,240,251,.42);
+  --ink:#000535; --surface:#050a42; --surface-2:#0b1150; --surface-3:#141b63;
+  --line:rgba(210,218,255,.10); --text:#eef0fb; --text-dim:rgba(238,240,251,.66); --text-faint:rgba(238,240,251,.42);
   --teal:#22b8d6; --teal-ink:#04151c; --gold:#e0ac3c; --danger:#e5574f; --success:#28b463;
   --r-sm:10px; --r-md:16px; --r-lg:22px; --r-full:999px;
   --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:28px;
@@ -171,7 +171,15 @@ textarea{min-height:auto;}
 
     <section class="tab" id="tab-messages">
       <div class="section-head"><h2>الرسائل</h2></div>
-      <div id="messagesList"></div>
+      <select id="messageStatusFilter" onchange="applyMessageFilter()">
+        <option value="">الكل (بدون المؤرشفة)</option>
+        <option value="new">جديدة</option>
+        <option value="read">مقروءة</option>
+        <option value="in_progress">قيد المعالجة</option>
+        <option value="resolved">محلولة</option>
+        <option value="archived">مؤرشفة</option>
+      </select>
+      <div id="messagesList" style="margin-top:var(--sp-4);"></div>
     </section>
 
     <section class="tab" id="tab-requests">
@@ -195,8 +203,87 @@ textarea{min-height:auto;}
 
     <section class="tab" id="tab-bots">
       <button class="back-btn" data-tab="overview"><i class="fa-solid fa-arrow-right"></i>الرئيسية</button>
-      <div class="section-head"><h2>البوتات</h2></div>
-      <p style="font-size:13px;color:var(--text-dim);">إدارة البوتات (تصنيف، حالة، تعديل جماعي) — قيد الإضافة كإدارة منفصلة كاملة لجدول البوتات.</p>
+      <div class="section-head"><h2>البوتات</h2><button class="btn ghost" onclick="openNewBotForm()">+ إضافة بوت</button></div>
+
+      <div id="botFormBox" style="display:none;margin-bottom:var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--sp-4);">
+        <input type="hidden" id="botFormId">
+        <div class="field-label">اسم البوت</div>
+        <input type="text" id="botFormName" placeholder="مثال: بوت أَثَر">
+        <div class="field-label">رابط البوت (t.me/...)</div>
+        <input type="text" id="botFormUrl" placeholder="https://t.me/username_bot">
+        <div class="field-label">الوصف (اختياري)</div>
+        <textarea id="botFormDesc" rows="2" placeholder="وصف قصير للبوت"></textarea>
+        <div class="field-label">التصنيف الوظيفي</div>
+        <select id="botFormFunction">
+          <option value="content_instant">محتوى فوري</option>
+          <option value="publish_to_your_channel">نشر لقناتك</option>
+          <option value="content_intake">استقبال محتوى للقنوات</option>
+          <option value="utility">بوتات خدمية</option>
+          <option value="contact">تواصل</option>
+        </select>
+        <div class="field-label">المجال (اختياري)</div>
+        <select id="botFormCategory">
+          <option value="">بدون مجال محدد</option>
+          <option value="quran">القرآن</option>
+          <option value="sunnah">السيرة النبوية</option>
+          <option value="selfdev">تطوير ذات</option>
+        </select>
+        <div class="btn-row">
+          <button class="btn success" onclick="saveBotForm()">حفظ</button>
+          <button class="btn ghost" onclick="closeBotForm()">إلغاء</button>
+        </div>
+      </div>
+
+      <input type="text" id="botSearch" placeholder="ابحث في البوتات...">
+      <select id="botFunctionFilter" style="margin-top:var(--sp-3);">
+        <option value="">كل التصنيفات الوظيفية</option>
+        <option value="content_instant">محتوى فوري</option>
+        <option value="publish_to_your_channel">نشر لقناتك</option>
+        <option value="content_intake">استقبال محتوى للقنوات</option>
+        <option value="utility">بوتات خدمية</option>
+        <option value="contact">تواصل</option>
+      </select>
+      <div id="botsList" style="margin-top:var(--sp-4);"></div>
+    </section>
+
+    <section class="tab" id="tab-groups">
+      <button class="back-btn" data-tab="overview"><i class="fa-solid fa-arrow-right"></i>الرئيسية</button>
+      <div class="section-head"><h2>الجروبات</h2><button class="btn ghost" onclick="openNewSimpleEntity('group')">+ إضافة جروب</button></div>
+      <div id="simpleFormBox-group" style="display:none;margin-bottom:var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--sp-4);">
+        <input type="hidden" id="simpleFormId-group">
+        <div class="field-label">اسم الجروب</div>
+        <input type="text" id="simpleFormName-group" placeholder="مثال: جروب نقاش القرآن">
+        <div class="field-label">رابط الجروب (t.me/...)</div>
+        <input type="text" id="simpleFormUrl-group" placeholder="https://t.me/+xxxxx">
+        <div class="field-label">الوصف (اختياري)</div>
+        <textarea id="simpleFormDesc-group" rows="2" placeholder="وصف قصير للجروب"></textarea>
+        <div class="btn-row">
+          <button class="btn success" onclick="saveSimpleEntity('group')">حفظ</button>
+          <button class="btn ghost" onclick="closeSimpleEntity('group')">إلغاء</button>
+        </div>
+      </div>
+      <input type="text" id="simpleSearch-group" placeholder="ابحث في الجروبات...">
+      <div id="simpleList-group" style="margin-top:var(--sp-4);"></div>
+    </section>
+
+    <section class="tab" id="tab-stickers">
+      <button class="back-btn" data-tab="overview"><i class="fa-solid fa-arrow-right"></i>الرئيسية</button>
+      <div class="section-head"><h2>الملصقات الدينية</h2><button class="btn ghost" onclick="openNewSimpleEntity('sticker')">+ إضافة ملصقات</button></div>
+      <div id="simpleFormBox-sticker" style="display:none;margin-bottom:var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--sp-4);">
+        <input type="hidden" id="simpleFormId-sticker">
+        <div class="field-label">اسم مجموعة الملصقات</div>
+        <input type="text" id="simpleFormName-sticker" placeholder="مثال: ملصقات القرآن الكريم">
+        <div class="field-label">رابط الملصقات (t.me/addstickers/...)</div>
+        <input type="text" id="simpleFormUrl-sticker" placeholder="https://t.me/addstickers/xxxxx">
+        <div class="field-label">الوصف (اختياري)</div>
+        <textarea id="simpleFormDesc-sticker" rows="2" placeholder="وصف قصير"></textarea>
+        <div class="btn-row">
+          <button class="btn success" onclick="saveSimpleEntity('sticker')">حفظ</button>
+          <button class="btn ghost" onclick="closeSimpleEntity('sticker')">إلغاء</button>
+        </div>
+      </div>
+      <input type="text" id="simpleSearch-sticker" placeholder="ابحث في الملصقات...">
+      <div id="simpleList-sticker" style="margin-top:var(--sp-4);"></div>
     </section>
 
     <section class="tab" id="tab-analytics">
@@ -208,9 +295,25 @@ textarea{min-height:auto;}
     <section class="tab" id="tab-settings">
       <button class="back-btn" data-tab="overview"><i class="fa-solid fa-arrow-right"></i>الرئيسية</button>
       <div class="section-head"><h2>الإعدادات</h2></div>
-      <p style="font-size:13px;color:var(--text-dim);line-height:1.9;">
-        الإعدادات الحالية بتتحكم فيها متغيرات البيئة في مشروعي الموقع والبوت (BOT_TOKEN، ADMIN_IDS، SUPABASE_URL...) —
-        لوحة إعدادات تفاعلية لتعديلها من هنا مباشرة قيد الإضافة.
+
+      <div class="group-title">التواصل</div>
+      <div class="field-label">البريد الإلكتروني للتواصل</div>
+      <input type="text" id="settingContactEmail" placeholder="لو فاضي، البريد مش هيظهر في الموقع خالص">
+      <button class="btn success" style="margin-top:var(--sp-3);" onclick="saveContactEmail()">حفظ البريد</button>
+
+      <div class="group-title" style="margin-top:var(--sp-6);">وضع الطوارئ</div>
+      <p style="font-size:12.5px;color:var(--text-dim);margin-bottom:var(--sp-3);">
+        تفعيله بيوقف النشر الجماعي فورًا (بدون ما يوقف الموقع العام). استخدمه بس وقت مشكلة حقيقية.
+      </p>
+      <div class="btn-row">
+        <button class="btn danger" onclick="setEmergencyMode(true)">تفعيل وضع الطوارئ</button>
+        <button class="btn ghost" onclick="setEmergencyMode(false)">إلغاء التفعيل</button>
+      </div>
+      <p style="font-size:12.5px;margin-top:var(--sp-3);">الحالة الحالية: <b id="emergencyModeStatus">—</b></p>
+
+      <p style="font-size:11.5px;color:var(--text-faint);margin-top:var(--sp-6);line-height:1.8;">
+        باقي إعدادات التشغيل الحساسة (BOT_TOKEN، ADMIN_IDS، SUPABASE_URL، GEMINI_API_KEY)
+        متعمّد تسيبها كمتغيرات بيئة في Vercel مش في الواجهة، عشان مينفعش أي Secret يظهر في المتصفح.
       </p>
     </section>
   </main>
@@ -228,9 +331,30 @@ textarea{min-height:auto;}
       <div class="sheet-handle"></div>
       <button class="sheet-item" data-tab="requests" data-close-sheet><i class="fa-solid fa-inbox"></i>الطلبات<span class="badge" id="reqBadge" style="display:none;"></span></button>
       <button class="sheet-item" data-tab="bots" data-close-sheet><i class="fa-solid fa-robot"></i>البوتات</button>
+      <button class="sheet-item" data-tab="groups" data-close-sheet><i class="fa-solid fa-user-group"></i>الجروبات</button>
+      <button class="sheet-item" data-tab="stickers" data-close-sheet><i class="fa-solid fa-icons"></i>الملصقات</button>
       <button class="sheet-item" data-tab="analytics" data-close-sheet><i class="fa-solid fa-chart-simple"></i>الإحصائيات</button>
       <button class="sheet-item" id="sheetBroadcast" data-close-sheet><i class="fa-solid fa-paper-plane"></i>النشر الجماعي</button>
       <button class="sheet-item" data-tab="settings" data-close-sheet><i class="fa-solid fa-gear"></i>الإعدادات</button>
+    </div>
+  </div>
+
+  <div class="sheet-overlay" id="previewModal">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div class="section-head"><h2 id="previewModalTitle" style="font-size:16px;">معاينة</h2></div>
+      <input type="hidden" id="previewChannelId">
+      <div class="field-label">نص المعاينة</div>
+      <textarea id="previewText" rows="3" placeholder="نص يمثل شكل منشورات القناة"></textarea>
+      <div class="field-label">رابط صورة (اختياري)</div>
+      <input type="text" id="previewImageUrl" placeholder="https://...">
+      <div class="field-label">رابط المنشور الأصلي على تيليجرام (اختياري)</div>
+      <input type="text" id="previewOriginalLink" placeholder="https://t.me/username/123">
+      <div class="btn-row" style="margin-top:var(--sp-3);">
+        <button class="btn success" onclick="savePreviewComposer()">حفظ المعاينة</button>
+        <button class="btn danger" onclick="deletePreviewComposer()">حذف المعاينة</button>
+        <button class="btn ghost" onclick="document.getElementById('previewModal').classList.remove('open')">إغلاق</button>
+      </div>
     </div>
   </div>
 </div>
@@ -269,9 +393,13 @@ function switchTab(tabName){
   const navBtn = document.querySelector(`.bottom-nav [data-tab="${tabName}"]`);
   if(navBtn) navBtn.classList.add("active");
   if(tabName==="channels") loadChannels();
+  if(tabName==="bots") loadBots();
+  if(tabName==="groups") loadSimpleEntity("group");
+  if(tabName==="stickers") loadSimpleEntity("sticker");
   if(tabName==="messages") loadMessages();
   if(tabName==="requests") loadRequests();
   if(tabName==="analytics") loadAnalytics();
+  if(tabName==="settings") loadSettings();
   if(tabName==="users"){ document.getElementById("userDetail").style.display="none"; document.getElementById("usersListView").style.display="block"; loadUsers(); }
 }
 document.addEventListener("click",(e)=>{
@@ -360,6 +488,7 @@ function renderChannels(list){
         <button class="btn ${c.archived?'success':'ghost'}" onclick="toggleArchive(${c.id}, ${!c.archived})">${c.archived ? 'إلغاء الأرشفة' : 'أرشفة'}</button>
         <button class="btn ghost" onclick="toggleFeatured(${c.id}, ${!c.is_featured})">${c.is_featured ? 'إلغاء التثبيت' : 'تثبيت'}</button>
         <button class="btn ${c.is_new?'success':'ghost'}" onclick="toggleNew(${c.id}, ${!c.is_new})">${c.is_new ? 'إلغاء علامة جديد' : 'علامة جديد'}</button>
+        <button class="btn ghost" onclick="openPreviewComposer(${c.id}, '${(c.name||'').replace(/'/g,"&apos;")}')">المعاينة</button>
         <a class="btn ghost" href="${c.url}" target="_blank">فتح في تليجرام</a>
       </div>
     </div>
@@ -415,23 +544,252 @@ async function broadcastToSelected(){
 async function setPostsMode(id, mode){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({posts_mode:mode})}); }
 async function toggleArchive(id, val){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({archived:val})}); loadChannels(); }
 
-async function loadMessages(){
-  const msgs = await api("/api/admin?action=messages");
-  const box = document.getElementById("messagesList");
-  if(!msgs.length){ box.innerHTML = `<div class="empty">مفيش رسائل</div>`; return; }
-  box.innerHTML = msgs.map(m => `
+/* ---------- البوتات ---------- */
+const BOT_FUNCTION_LABELS = {
+  content_instant:"محتوى فوري", publish_to_your_channel:"نشر لقناتك",
+  content_intake:"استقبال محتوى للقنوات", utility:"بوتات خدمية", contact:"تواصل"
+};
+let allBots = [];
+async function loadBots(){ allBots = await api("/api/admin?action=channels&type=bot"); renderBots(allBots); }
+function renderBots(list){
+  const box = document.getElementById("botsList");
+  if(!list.length){ box.innerHTML = `<div class="empty">مفيش بوتات مضافة لسه</div>`; return; }
+  box.innerHTML = list.map(b => `
     <div class="list-item">
-      <div class="top"><b>${m.name}</b><span style="font-size:11px;color:${m.status==='new'?'var(--gold)':'var(--text-dim)'}">${m.status}</span></div>
-      <small>${m.contact || ""} ${m.sentiment ? `<span class="tag-pill">${m.sentiment}</span>` : ""}</small>
-      <p style="font-size:13px;margin:10px 0;">${m.message}</p>
+      <div class="top">
+        <b>${b.name}</b>
+        <span class="tag-pill">${BOT_FUNCTION_LABELS[b.bot_function] || "بدون تصنيف"}</span>
+      </div>
+      <small>${b.description || ""} ${b.archived ? '<span class="tag-pill" style="background:var(--text-faint);">مؤرشف</span>' : ""}</small>
       <div class="btn-row">
-        ${m.status==='new' ? `<button class="btn ghost" onclick="markRead(${m.id})">علّمها مقروءة</button>` : ""}
-        ${!m.sentiment ? `<button class="btn ghost" onclick="analyzeSentiment(${m.id})">حلّل المشاعر (AI)</button>` : ""}
+        <button class="btn ghost" onclick='openBotForm(${JSON.stringify(b).replace(/'/g,"&apos;")})'>تعديل</button>
+        <button class="btn ${b.archived?'success':'ghost'}" onclick="toggleBotArchive(${b.id}, ${!b.archived})">${b.archived ? 'إلغاء الأرشفة' : 'أرشفة'}</button>
+        <button class="btn danger" onclick="deleteBot(${b.id})">حذف</button>
+        <a class="btn ghost" href="${b.url}" target="_blank">فتح في تليجرام</a>
       </div>
     </div>`).join("");
 }
-async function markRead(id){ await api(`/api/admin?action=message&id=${id}`, {method:"PATCH", body:JSON.stringify({status:"read"})}); loadMessages(); }
+function applyBotFilters(){
+  const q = document.getElementById("botSearch").value.toLowerCase();
+  const fn = document.getElementById("botFunctionFilter").value;
+  const list = allBots.filter(b => (!q || (b.name||"").toLowerCase().includes(q) || (b.description||"").toLowerCase().includes(q)) && (!fn || b.bot_function === fn));
+  renderBots(list);
+}
+document.getElementById("botSearch").addEventListener("input", applyBotFilters);
+document.getElementById("botFunctionFilter").addEventListener("change", applyBotFilters);
+function closeBotForm(){
+  document.getElementById("botFormBox").style.display = "none";
+  document.getElementById("botFormId").value = "";
+  document.getElementById("botFormName").value = "";
+  document.getElementById("botFormUrl").value = "";
+  document.getElementById("botFormDesc").value = "";
+}
+function openNewBotForm(){
+  closeBotForm();
+  document.getElementById("botFormBox").style.display = "block";
+}
+function openBotForm(b){
+  document.getElementById("botFormBox").style.display = "block";
+  document.getElementById("botFormId").value = b.id;
+  document.getElementById("botFormName").value = b.name || "";
+  document.getElementById("botFormUrl").value = b.url || "";
+  document.getElementById("botFormDesc").value = b.description || "";
+  document.getElementById("botFormFunction").value = b.bot_function || "content_instant";
+  document.getElementById("botFormCategory").value = b.category || "";
+}
+async function saveBotForm(){
+  const id = document.getElementById("botFormId").value;
+  const name = document.getElementById("botFormName").value.trim();
+  const url = document.getElementById("botFormUrl").value.trim();
+  if(!name || !url) return alert("الاسم والرابط مطلوبين");
+  const body = {
+    name, url,
+    description: document.getElementById("botFormDesc").value.trim() || null,
+    bot_function: document.getElementById("botFormFunction").value,
+    category: document.getElementById("botFormCategory").value || null,
+    entity_type: "bot"
+  };
+  if(id){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify(body)}); }
+  else { await api("/api/admin?action=channels", {method:"POST", body:JSON.stringify(body)}); }
+  closeBotForm();
+  loadBots();
+}
+async function toggleBotArchive(id, val){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({archived:val})}); loadBots(); }
+async function deleteBot(id){
+  if(!confirm("حذف البوت ده نهائيًا؟")) return;
+  await api(`/api/admin?action=channel&id=${id}`, {method:"DELETE"});
+  loadBots();
+}
+
+/* ---------- الجروبات والملصقات (نفس المنطق، entity_type مختلف) ---------- */
+const SIMPLE_ENTITY_CFG = {
+  group:   {category:"groups",   emptyLabel:"مفيش جروبات مضافة لسه",  urlHint:"t.me/+invite"},
+  sticker: {category:"stickers", emptyLabel:"مفيش ملصقات مضافة لسه", urlHint:"t.me/addstickers/..."}
+};
+const simpleEntityCache = {};
+async function loadSimpleEntity(type){
+  simpleEntityCache[type] = await api(`/api/admin?action=channels&type=${type}`);
+  renderSimpleEntity(type, simpleEntityCache[type]);
+}
+function renderSimpleEntity(type, list){
+  const box = document.getElementById(`simpleList-${type}`);
+  const cfg = SIMPLE_ENTITY_CFG[type];
+  if(!list.length){ box.innerHTML = `<div class="empty">${cfg.emptyLabel}</div>`; return; }
+  box.innerHTML = list.map(it => `
+    <div class="list-item">
+      <div class="top"><b>${it.name}</b>${it.archived?'<span class="tag-pill" style="background:var(--text-faint);">مؤرشف</span>':""}</div>
+      <small>${it.description || ""}</small>
+      <div class="btn-row">
+        <button class="btn ghost" onclick='openEditSimpleEntity("${type}", ${JSON.stringify(it).replace(/'/g,"&apos;")})'>تعديل</button>
+        ${type==='group' ? `<button class="btn ghost" onclick="openPreviewComposer(${it.id}, '${(it.name||'').replace(/'/g,"&apos;")}')">المعاينة</button>` : ""}
+        <button class="btn ${it.archived?'success':'ghost'}" onclick="toggleSimpleArchive('${type}', ${it.id}, ${!it.archived})">${it.archived?'إلغاء الأرشفة':'أرشفة'}</button>
+        <button class="btn danger" onclick="deleteSimpleEntity('${type}', ${it.id})">حذف</button>
+        <a class="btn ghost" href="${it.url}" target="_blank">فتح في تليجرام</a>
+      </div>
+    </div>`).join("");
+}
+function applySimpleFilter(type){
+  const q = document.getElementById(`simpleSearch-${type}`).value.toLowerCase();
+  const list = (simpleEntityCache[type]||[]).filter(it => !q || (it.name||"").toLowerCase().includes(q) || (it.description||"").toLowerCase().includes(q));
+  renderSimpleEntity(type, list);
+}
+document.getElementById("simpleSearch-group").addEventListener("input", ()=>applySimpleFilter("group"));
+document.getElementById("simpleSearch-sticker").addEventListener("input", ()=>applySimpleFilter("sticker"));
+function closeSimpleEntity(type){
+  document.getElementById(`simpleFormBox-${type}`).style.display = "none";
+  document.getElementById(`simpleFormId-${type}`).value = "";
+  document.getElementById(`simpleFormName-${type}`).value = "";
+  document.getElementById(`simpleFormUrl-${type}`).value = "";
+  document.getElementById(`simpleFormDesc-${type}`).value = "";
+}
+function openNewSimpleEntity(type){
+  closeSimpleEntity(type);
+  document.getElementById(`simpleFormBox-${type}`).style.display = "block";
+}
+function openEditSimpleEntity(type, it){
+  document.getElementById(`simpleFormBox-${type}`).style.display = "block";
+  document.getElementById(`simpleFormId-${type}`).value = it.id;
+  document.getElementById(`simpleFormName-${type}`).value = it.name || "";
+  document.getElementById(`simpleFormUrl-${type}`).value = it.url || "";
+  document.getElementById(`simpleFormDesc-${type}`).value = it.description || "";
+}
+async function saveSimpleEntity(type){
+  const id = document.getElementById(`simpleFormId-${type}`).value;
+  const name = document.getElementById(`simpleFormName-${type}`).value.trim();
+  const url = document.getElementById(`simpleFormUrl-${type}`).value.trim();
+  if(!name || !url) return alert("الاسم والرابط مطلوبين");
+  const body = { name, url, description: document.getElementById(`simpleFormDesc-${type}`).value.trim() || null, entity_type: type, category: SIMPLE_ENTITY_CFG[type].category };
+  if(id){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify(body)}); }
+  else { await api("/api/admin?action=channels", {method:"POST", body:JSON.stringify(body)}); }
+  closeSimpleEntity(type);
+  loadSimpleEntity(type);
+}
+async function toggleSimpleArchive(type, id, val){ await api(`/api/admin?action=channel&id=${id}`, {method:"PATCH", body:JSON.stringify({archived:val})}); loadSimpleEntity(type); }
+async function deleteSimpleEntity(type, id){
+  if(!confirm("حذف العنصر ده نهائيًا؟")) return;
+  await api(`/api/admin?action=channel&id=${id}`, {method:"DELETE"});
+  loadSimpleEntity(type);
+}
+
+/* ---------- معاينة المحتوى (Preview Snapshot) ---------- */
+async function openPreviewComposer(channelId, channelName){
+  document.getElementById("previewChannelId").value = channelId;
+  document.getElementById("previewModalTitle").textContent = `معاينة — ${channelName}`;
+  document.getElementById("previewText").value = "";
+  document.getElementById("previewImageUrl").value = "";
+  document.getElementById("previewOriginalLink").value = "";
+  document.getElementById("previewModal").classList.add("open");
+  try{
+    const existing = await api(`/api/admin?action=preview&channel_id=${channelId}`);
+    if(existing){
+      document.getElementById("previewText").value = existing.text || "";
+      document.getElementById("previewImageUrl").value = existing.image_url || "";
+      document.getElementById("previewOriginalLink").value = existing.original_link || "";
+    }
+  }catch(e){}
+}
+async function savePreviewComposer(){
+  const channel_id = document.getElementById("previewChannelId").value;
+  const text = document.getElementById("previewText").value.trim();
+  const image_url = document.getElementById("previewImageUrl").value.trim();
+  const original_link = document.getElementById("previewOriginalLink").value.trim();
+  if(!text && !image_url) return alert("لازم نص أو صورة على الأقل");
+  await api("/api/admin?action=preview", {method:"POST", body:JSON.stringify({
+    channel_id, text: text||null, image_url: image_url||null, original_link: original_link||null,
+    media_type: image_url ? "photo" : "text"
+  })});
+  document.getElementById("previewModal").classList.remove("open");
+}
+async function deletePreviewComposer(){
+  const channel_id = document.getElementById("previewChannelId").value;
+  if(!confirm("حذف المعاينة الحالية لهذه القناة؟")) return;
+  await api(`/api/admin?action=preview&channel_id=${channel_id}`, {method:"DELETE"});
+  document.getElementById("previewModal").classList.remove("open");
+}
+document.getElementById("previewModal").addEventListener("click",(e)=>{
+  if(e.target.id==="previewModal") e.target.classList.remove("open");
+});
+
+const MSG_STATUS_LABELS = {new:"جديدة", read:"مقروءة", in_progress:"قيد المعالجة", resolved:"محلولة", archived:"مؤرشفة"};
+const MSG_STATUS_COLORS = {new:"var(--gold)", read:"var(--text-dim)", in_progress:"var(--teal)", resolved:"var(--success)", archived:"var(--text-faint)"};
+let allMessages = [];
+async function loadMessages(){
+  allMessages = await api("/api/admin?action=messages");
+  applyMessageFilter();
+}
+function applyMessageFilter(){
+  const f = document.getElementById("messageStatusFilter")?.value || "";
+  const list = f ? allMessages.filter(m => (m.status||"new") === f) : allMessages.filter(m => (m.status||"new") !== "archived");
+  renderMessages(list);
+}
+function renderMessages(msgs){
+  const box = document.getElementById("messagesList");
+  if(!msgs.length){ box.innerHTML = `<div class="empty">مفيش رسائل في القسم ده</div>`; return; }
+  box.innerHTML = msgs.map(m => {
+    const status = m.status || "new";
+    return `
+    <div class="list-item">
+      <div class="top"><b>${m.name}</b><span style="font-size:11px;color:${MSG_STATUS_COLORS[status]}">${MSG_STATUS_LABELS[status]}</span></div>
+      <small>${m.contact || ""} ${m.sentiment ? `<span class="tag-pill">${m.sentiment}</span>` : ""}</small>
+      <p style="font-size:13px;margin:10px 0;">${m.message}</p>
+      ${m.internal_note ? `<p style="font-size:11.5px;color:var(--text-faint);border-right:2px solid var(--line);padding-right:8px;">ملاحظة: ${m.internal_note}</p>` : ""}
+      <div class="btn-row">
+        ${status==='new' ? `<button class="btn ghost" onclick="setMsgStatus(${m.id},'read')">علّمها مقروءة</button>` : ""}
+        ${status!=='in_progress' && status!=='resolved' && status!=='archived' ? `<button class="btn ghost" onclick="setMsgStatus(${m.id},'in_progress')">قيد المعالجة</button>` : ""}
+        ${status!=='resolved' && status!=='archived' ? `<button class="btn success" onclick="setMsgStatus(${m.id},'resolved')">تمّ الحل</button>` : ""}
+        ${status!=='archived' ? `<button class="btn ghost" onclick="setMsgStatus(${m.id},'archived')">أرشفة</button>` : `<button class="btn ghost" onclick="setMsgStatus(${m.id},'new')">إلغاء الأرشفة</button>`}
+        ${!m.sentiment ? `<button class="btn ghost" onclick="analyzeSentiment(${m.id})">حلّل المشاعر (AI)</button>` : ""}
+        <button class="btn ghost" onclick="addMsgNote(${m.id}, '${(m.internal_note||"").replace(/'/g,"&apos;")}')">ملاحظة داخلية</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+async function setMsgStatus(id, status){ await api(`/api/admin?action=message&id=${id}`, {method:"PATCH", body:JSON.stringify({status})}); loadMessages(); }
+async function addMsgNote(id, current){
+  const note = prompt("ملاحظة داخلية (تظهر للإدارة بس):", current);
+  if(note===null) return;
+  await api(`/api/admin?action=message&id=${id}`, {method:"PATCH", body:JSON.stringify({internal_note: note})});
+  loadMessages();
+}
 async function analyzeSentiment(id){ const r = await api(`/api/admin?action=message-sentiment&id=${id}`, {method:"POST"}); if(r.error) return alert(r.error); loadMessages(); }
+
+/* ---------- الإعدادات ---------- */
+async function loadSettings(){
+  const s = await api("/api/admin?action=settings");
+  document.getElementById("settingContactEmail").value = s.contact_email || "";
+  const on = s.emergency_mode === true;
+  document.getElementById("emergencyModeStatus").textContent = on ? "مفعّل ⚠️" : "غير مفعّل";
+  document.getElementById("emergencyModeStatus").style.color = on ? "var(--danger)" : "var(--success)";
+}
+async function saveContactEmail(){
+  const value = document.getElementById("settingContactEmail").value.trim();
+  await api("/api/admin?action=settings", {method:"POST", body:JSON.stringify({key:"contact_email", value})});
+  alert("تم الحفظ");
+}
+async function setEmergencyMode(on){
+  await api("/api/admin?action=settings", {method:"POST", body:JSON.stringify({key:"emergency_mode", value:on})});
+  loadSettings();
+}
 
 async function loadRequests(){
   const reqs = await api("/api/admin?action=requests");

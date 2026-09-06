@@ -42,9 +42,10 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, user: req.adminUser });
     }
 
-    /* ---------- القنوات ---------- */
+    /* ---------- القنوات (entity_type = channel بشكل افتراضي) ---------- */
     if (action === "channels" && method === "GET") {
-      let query = "?select=*&order=sort_order.asc";
+      const type = req.query.type || "channel"; // channel | bot | group | sticker
+      let query = `?select=*&entity_type=eq.${type}&order=sort_order.asc`;
       if (req.query.category) query += `&category=eq.${req.query.category}`;
       const result = await db("channels", { query });
       let rows = result.data || [];
@@ -55,7 +56,8 @@ module.exports = async (req, res) => {
       return res.status(200).json(rows);
     }
     if (action === "channels" && method === "POST") {
-      const result = await db("channels", { method: "POST", body: req.body });
+      const body = { entity_type: "channel", ...req.body };
+      const result = await db("channels", { method: "POST", body });
       return res.status(200).json({ ok: !result.error, data: result.data });
     }
     if (action === "channel" && method === "PATCH") {
@@ -80,14 +82,20 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, updated: done, total: ids.length });
     }
     if (action === "channels-export" && method === "GET") {
-      const result = await db("channels", { query: "?select=*&order=sort_order.asc" });
+      const type = req.query.type || "channel";
+      const result = await db("channels", { query: `?select=*&entity_type=eq.${type}&order=sort_order.asc` });
       const rows = result.data || [];
-      const header = "id,name,category,url,subscriber_count,archived,posts_mode";
+      const header = type === "bot"
+        ? "id,name,bot_function,category,url,archived"
+        : "id,name,category,url,subscriber_count,archived,posts_mode";
       const csv = [header, ...rows.map((r) =>
-        [r.id, r.name, r.category, r.url, r.subscriber_count ?? "", r.archived, r.posts_mode].map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")
+        (type === "bot"
+          ? [r.id, r.name, r.bot_function, r.category, r.url, r.archived]
+          : [r.id, r.name, r.category, r.url, r.subscriber_count ?? "", r.archived, r.posts_mode]
+        ).map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")
       )].join("\n");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      res.setHeader("Content-Disposition", "attachment; filename=channels.csv");
+      res.setHeader("Content-Disposition", `attachment; filename=${type}s.csv`);
       return res.status(200).send("\uFEFF" + csv);
     }
     if (action === "channels-import" && method === "POST") {
@@ -96,7 +104,12 @@ module.exports = async (req, res) => {
       let created = 0, failed = 0;
       for (const row of rows) {
         if (!row.name || !row.url) { failed++; continue; }
-        const result = await db("channels", { method: "POST", body: { name: row.name, url: row.url, category: row.category || "quran", description: row.description || null } });
+        const result = await db("channels", { method: "POST", body: {
+          name: row.name, url: row.url, description: row.description || null,
+          entity_type: row.entity_type || "channel",
+          category: row.category || (row.entity_type === "bot" ? null : "quran"),
+          bot_function: row.bot_function || null
+        } });
         if (result.error) failed++; else created++;
       }
       return res.status(200).json({ ok: true, created, failed });
@@ -227,12 +240,59 @@ module.exports = async (req, res) => {
       return res.status(200).json({ sentiment });
     }
 
+    /* ---------- إعدادات المشروع (حقيقية — key/value في القاعدة) ---------- */
+    if (action === "settings" && method === "GET") {
+      const result = await db("site_settings", { query: "?select=*" });
+      const map = {};
+      for (const row of result.data || []) map[row.key] = row.value;
+      return res.status(200).json(map);
+    }
+    if (action === "settings" && method === "POST") {
+      const { key, value } = req.body || {};
+      if (!key) return res.status(400).json({ error: "محتاج key" });
+      const existing = await db("site_settings", { query: `?key=eq.${key}&select=key` });
+      const body = { key, value, updated_at: new Date().toISOString() };
+      const result = existing.data?.[0]
+        ? await db("site_settings", { method: "PATCH", query: `?key=eq.${key}`, body: { value: body.value, updated_at: body.updated_at } })
+        : await db("site_settings", { method: "POST", body });
+      return res.status(200).json({ ok: !result.error });
+    }
+
     /* ---------- نشر مستهدف لمجموعة مختارة (مش كل القنوات) — فكرة 3 ---------- */
     if (action === "broadcast" && method === "POST") {
+      const emergency = await db("site_settings", { query: "?key=eq.emergency_mode&select=value" });
+      if (emergency.data?.[0]?.value === true) {
+        return res.status(423).json({ error: "وضع الطوارئ مفعّل — النشر الجماعي متوقف مؤقتًا. أوقفه من الإعدادات." });
+      }
       const { message, chatIds } = req.body || {};
       if (!message) return res.status(400).json({ error: "محتاج message" });
       const target = Array.isArray(chatIds) && chatIds.length ? chatIds.join(",") : "all";
       const result = await db("broadcast_queue", { method: "POST", body: { message, target, status: "pending" } });
+      return res.status(200).json({ ok: !result.error });
+    }
+
+    /* ---------- المعاينة (Preview Snapshot) — Admin-curated، مش أرشيف تلقائي ---------- */
+    if (action === "preview" && method === "GET") {
+      const channelId = req.query.channel_id;
+      if (!channelId) return res.status(400).json({ error: "محتاج channel_id" });
+      const result = await db("previews", { query: `?channel_id=eq.${channelId}&select=*` });
+      return res.status(200).json(result.data?.[0] || null);
+    }
+    if (action === "preview" && method === "POST") {
+      const { channel_id, text, media_type, image_url, original_link } = req.body || {};
+      if (!channel_id) return res.status(400).json({ error: "محتاج channel_id" });
+      if (!text && !image_url) return res.status(400).json({ error: "محتاج نص أو صورة على الأقل" });
+      const existing = await db("previews", { query: `?channel_id=eq.${channel_id}&select=id` });
+      const body = { channel_id, text: text || null, media_type: media_type || "text", image_url: image_url || null, original_link: original_link || null, updated_at: new Date().toISOString() };
+      const result = existing.data?.[0]
+        ? await db("previews", { method: "PATCH", query: `?id=eq.${existing.data[0].id}`, body })
+        : await db("previews", { method: "POST", body });
+      return res.status(200).json({ ok: !result.error, data: result.data });
+    }
+    if (action === "preview" && method === "DELETE") {
+      const channelId = req.query.channel_id;
+      if (!channelId) return res.status(400).json({ error: "محتاج channel_id" });
+      const result = await db("previews", { method: "DELETE", query: `?channel_id=eq.${channelId}` });
       return res.status(200).json({ ok: !result.error });
     }
 
