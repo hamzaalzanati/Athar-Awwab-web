@@ -1,65 +1,27 @@
-/* =========================================================
-   api/contact.js — Vercel Serverless Function
-   =========================================================
-   يستقبل رسائل نموذج "تواصل معنا" من الموقع ويحوّلها فورًا لرسالة
-   تليجرام تجيلك مباشرة — بدل نظام إيميل تقليدي (زي ما طلبت بالظبط).
+import { db } from "../lib/db.js";
 
-   الإعداد المطلوب (مرة واحدة بس):
-   1) اعمل بوت جديد من BotFather على تليجرام (أو استخدم بوت موجود عندك
-      خاص بالإدارة) وخد التوكن بتاعه.
-   2) ابعت أي رسالة للبوت من حسابك الشخصي، بعدين افتح في المتصفح:
-      https://api.telegram.org/bot<التوكن>/getUpdates
-      وهتلاقي رقم "chat":{"id": ...} — ده الـ Chat ID بتاعك.
-   3) في إعدادات المشروع على Vercel: Settings > Environment Variables
-      ضيف متغيرين:
-        BOT_TOKEN      = توكن البوت
-        ADMIN_CHAT_ID  = الـ Chat ID اللي طلع فوق
-   4) اعمل Redeploy للمشروع عشان المتغيرات الجديدة تتفعّل.
-   بعد كده أي رسالة من الموقع هتوصلك على تليجرام فورًا.
-   ========================================================= */
+const back = (res, qs) => res.status(303).setHeader("Location", `/contact?${qs}`).setHeader("Cache-Control", "no-store").end();
 
-module.exports = async (req, res) => {
-  if (req.method !== "POST") {
-    res.status(405).json({ error: "method not allowed" });
-    return;
-  }
-
-  const { BOT_TOKEN, ADMIN_CHAT_ID } = process.env;
-  if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
-    res.status(503).json({ error: "بوت التواصل لسه متعملوش إعداد (شوف تعليمات أعلى الملف)" });
-    return;
-  }
-
-  let body = req.body;
-  if (typeof body === "string") {
-    try { body = JSON.parse(body); } catch (e) { body = {}; }
-  }
-
-  const name = ((body && body.name) || "").toString().slice(0, 120).trim();
-  const message = ((body && body.message) || "").toString().slice(0, 1500).trim();
-  const contact = ((body && body.contact) || "").toString().slice(0, 150).trim();
-
-  if (!name || !message) {
-    res.status(400).json({ error: "الاسم والرسالة مطلوبين" });
-    return;
-  }
-
-  const text =
-    `رسالة جديدة من موقع أثر أواب\n\n` +
-    `الاسم: ${name}\n` +
-    (contact ? `للتواصل: ${contact}\n` : "") +
-    `\nالرسالة:\n${message}`;
-
+export default async function handler(req, res) {
+  if (req.method !== "POST") return res.status(405).end();
   try {
-    const tgRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: ADMIN_CHAT_ID, text })
+    const b = req.body ?? {};
+    if (String(b.website ?? "") !== "") return back(res, "sent=1"); // فخ للروبوتات: نتظاهر بالنجاح
+    const message = String(b.message ?? "").trim();
+    if (!message || message.length > 4000) return back(res, "error=message_required");
+    // فرملة عامة ضد الإغراق (بلا تخزين عناوين IP): 30 رسالة/ساعة للموقع كله
+    const since = new Date(Date.now() - 3600_000).toISOString();
+    const { count } = await db().from("contact_messages").select("id", { count: "exact", head: true }).gte("created_at", since);
+    if ((count ?? 0) >= 30) return back(res, "error=rate_limited");
+    const { error } = await db().from("contact_messages").insert({
+      name: String(b.name ?? "").trim().slice(0, 100) || null,
+      contact: String(b.contact ?? "").trim().slice(0, 200) || null,
+      message,
     });
-    const tgJson = await tgRes.json();
-    if (!tgJson.ok) throw new Error("telegram api error: " + JSON.stringify(tgJson));
-    res.status(200).json({ ok: true });
-  } catch (e) {
-    res.status(502).json({ error: "تعذر إرسال الرسالة، جرب تواصل مباشر عبر تليجرام" });
+    if (error) throw new Error(error.message);
+    return back(res, "sent=1");
+  } catch (err) {
+    console.error("contact error:", err?.message);
+    return back(res, "error=failed");
   }
-};
+}

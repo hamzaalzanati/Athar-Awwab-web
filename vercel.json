@@ -1,3 +1,47 @@
 {
-  "cleanUrls": true
+  "cleanUrls": true,
+  "functions": { "api/admin.js": { "maxDuration": 30 } },
+  "rewrites": [
+    { "source": "/", "destination": "/api/page?r=home" },
+    { "source": "/explore", "destination": "/api/page?r=explore" },
+    { "source": "/channels", "destination": "/api/page?r=list&t=channel" },
+    { "source": "/bots", "destination": "/api/page?r=list&t=bot" },
+    { "source": "/groups", "destination": "/api/page?r=list&t=group" },
+    { "source": "/stickers", "destination": "/api/page?r=list&t=sticker_pack" },
+    { "source": "/channels/:slug", "destination": "/api/page?r=entity&t=channel&slug=:slug" },
+    { "source": "/bots/:slug", "destination": "/api/page?r=entity&t=bot&slug=:slug" },
+    { "source": "/groups/:slug", "destination": "/api/page?r=entity&t=group&slug=:slug" },
+    { "source": "/stickers/:slug", "destination": "/api/page?r=entity&t=sticker_pack&slug=:slug" },
+    { "source": "/websites", "destination": "/api/page?r=websites" },
+    { "source": "/search", "destination": "/api/page?r=search" },
+    { "source": "/contribute", "destination": "/api/page?r=contribute" },
+    { "source": "/help", "destination": "/api/page?r=help" },
+    { "source": "/more", "destination": "/api/page?r=more" },
+    { "source": "/about", "destination": "/api/page?r=about" },
+    { "source": "/contact", "destination": "/api/page?r=contact" },
+    { "source": "/sitemap.xml", "destination": "/api/page?r=sitemap" },
+    { "source": "/robots.txt", "destination": "/api/page?r=robots" }
+  ],
+  "headers": [
+    {
+      "source": "/((?!tg/).*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" }
+      ]
+    },
+    {
+      "source": "/tg/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-cache" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    },
+    {
+      "source": "/images/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400, stale-while-revalidate=604800" }]
+    }
+  ]
 }
