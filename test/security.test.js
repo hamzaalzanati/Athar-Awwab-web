@@ -58,3 +58,11 @@ test("validators accept only safe links", () => {
   assert.throws(() => text("ab", { min: 3 }), ValidationError);
   assert.throws(() => oneOf("x", ["a"]), ValidationError);
 });
+
+test("sensitive new actions are role-gated: admins/owner-only, broadcast/jobs/users need admin, editors get content only", () => {
+  for (const a of ["admins.list", "admin.upsert", "admin.toggle"]) { assert.equal(roleAllows("admin", a), false, a); assert.equal(roleAllows("owner", a), true, a); }
+  for (const a of ["broadcast.send", "broadcast.preview", "jobs.list", "job.retry", "user.update", "contact.delete", "alert.ack", "import.links"]) {
+    assert.equal(roleAllows("editor", a), false, a); assert.equal(roleAllows("admin", a), true, a);
+  }
+  for (const a of ["analytics.get", "entity.syncs", "entity.update", "preview.save"]) assert.equal(roleAllows("editor", a), true, a);
+});

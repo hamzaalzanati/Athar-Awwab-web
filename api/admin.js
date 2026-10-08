@@ -36,16 +36,21 @@ const actions = {
   async overview() {
     const d = db();
     const head = (q) => q.then(({ count }) => count ?? 0);
-    const [pending, active, unread, alerts, hb] = await Promise.all([
+    const [pending, active, unread, alerts, hb, failing, queued, lastSync, aiToday] = await Promise.all([
       head(d.from("entities").select("id", { count: "exact", head: true }).eq("status", "pending")),
       head(d.from("entities").select("id", { count: "exact", head: true }).eq("status", "active")),
       head(d.from("contact_messages").select("id", { count: "exact", head: true }).eq("is_read", false)),
-      d.from("alerts").select("key,severity,title,detail,created_at").eq("is_resolved", false).order("created_at", { ascending: false }).limit(10).then(must),
+      d.from("alerts").select("key,severity,title,detail,created_at,acknowledged").eq("is_resolved", false).order("created_at", { ascending: false }).limit(10).then(must),
       d.from("site_settings").select("value").eq("key", "bot_heartbeat").limit(1).then(must),
+      head(d.from("entities").select("id", { count: "exact", head: true }).eq("status", "active").gte("sync_failures", 3)),
+      head(d.from("bot_jobs").select("id", { count: "exact", head: true }).in("status", ["queued", "running"])),
+      d.from("entities").select("last_synced_at").not("last_synced_at", "is", null).order("last_synced_at", { ascending: false }).limit(1).then(must),
+      d.from("ai_usage").select("level,calls").eq("day", new Date().toISOString().slice(0, 10)).then(must),
     ]);
     const at = hb[0]?.value?.at ? Date.parse(hb[0].value.at) : null;
     const bot = at === null ? "unknown" : Date.now() - at < 10 * 60_000 ? "healthy" : "stale";
-    return { pending, active, unreadMessages: unread, alerts, health: { bot, database: "healthy" } };
+    const ai = { configured: ["PRIMARY", "HELPER", "EMERGENCY"].filter((r) => process.env[`GEMINI_API_KEY_${r}`]).length, today: aiToday };
+    return { pending, active, unreadMessages: unread, alerts, health: { bot, database: "healthy" }, system: { failingSyncs: failing, queuedJobs: queued, lastSyncAt: lastSync[0]?.last_synced_at ?? null, ai } };
   },
 
   async "pending.list"() {
@@ -76,12 +81,14 @@ const actions = {
   },
 
   async "entities.list"(b) {
-    let q = db().from("entities").select(ENTITY_LIST).order("updated_at", { ascending: false }).limit(60);
+    const offset = Math.max(0, Math.min(Number(b.offset) || 0, 100000));
+    let q = db().from("entities").select(ENTITY_LIST).order("updated_at", { ascending: false }).range(offset, offset + 59);
     if (b.status) q = q.eq("status", oneOf(b.status, STATUSES));
     if (b.type) q = q.eq("entity_type", oneOf(b.type, TYPES));
     const term = String(b.q ?? "").replace(/[^\p{L}\p{N}\s]/gu, " ").trim().slice(0, 40);
     if (term) q = q.ilike("search_text", `%${term.toLowerCase()}%`);
-    return { items: must(await q) };
+    const items = must(await q);
+    return { items, more: items.length === 60 };
   },
 
   async "entity.update"(b, admin) {
@@ -381,6 +388,96 @@ const actions = {
     if (projectRows.length) must(await d.from("projects").insert(projectRows));
     await audit(admin, "import.links", { entities: entityRows.length, social: socialRows.length, projects: projectRows.length });
     return { ok: true, report, created: entityRows.length + socialRows.length + projectRows.length };
+  },
+
+  async "analytics.get"(b) {
+    const days = [7, 30, 90].includes(Number(b.days)) ? Number(b.days) : 7;
+    const { data, error } = await db().rpc("analytics_summary", { p_days: days });
+    if (error) throw new Error(error.message);
+    return { days, ...data };
+  },
+
+  // «معلوم»: يبقى التنبيه مفتوحًا لكن لا يُعاد الإشعار به؛ ويُغلق وحده حين تزول المشكلة.
+  async "alert.ack"(b, admin) {
+    const key = String(b.key ?? "").slice(0, 120);
+    if (!key) throw new ValidationError("invalid_id");
+    must(await db().from("alerts").update({ acknowledged: b.ack !== false }).eq("key", key).select("key").single());
+    await audit(admin, "alert.ack", { key });
+    return { ok: true };
+  },
+
+  async "admins.list"() {
+    return { items: must(await db().from("admins").select("telegram_user_id,name,role,is_active,created_at").order("created_at")) };
+  },
+  async "admin.upsert"(b, admin) {
+    const id = Number(b.telegram_user_id);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new ValidationError("invalid_id");
+    const role = oneOf(b.role, ["owner", "admin", "editor"], "invalid_role");
+    if (id === Number(admin.telegram_user_id) && role !== "owner") throw new ValidationError("cannot_demote_self");
+    must(await db().from("admins").upsert({ telegram_user_id: id, name: text(b.name, { max: 60 }), role, is_active: true }, { onConflict: "telegram_user_id" }));
+    await audit(admin, "admin.upsert", { id, role });
+    return { ok: true };
+  },
+  async "admin.toggle"(b, admin) {
+    const id = Number(b.telegram_user_id);
+    if (!Number.isSafeInteger(id)) throw new ValidationError("invalid_id");
+    if (id === Number(admin.telegram_user_id)) throw new ValidationError("cannot_disable_self");
+    must(await db().from("admins").update({ is_active: bool(b.active) }).eq("telegram_user_id", id).select("telegram_user_id").single());
+    await audit(admin, "admin.toggle", { id, active: bool(b.active) });
+    return { ok: true };
+  },
+
+  async "user.update"(b, admin) {
+    const id = Number(b.telegram_user_id);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new ValidationError("invalid_id");
+    const p = {};
+    if ("is_banned" in b) p.is_banned = bool(b.is_banned);
+    if ("notes" in b) p.notes = longText(b.notes, 1000);
+    if (!Object.keys(p).length) throw new ValidationError("nothing_to_update");
+    must(await db().from("telegram_users").update(p).eq("telegram_user_id", id).select("telegram_user_id").single());
+    await audit(admin, "user.update", { id, fields: Object.keys(p) });
+    return { ok: true };
+  },
+
+  async "contact.mark"(b) {
+    must(await db().from("contact_messages").update({ is_read: bool(b.read) }).eq("id", uuid(b.id)).select("id").single());
+    return { ok: true };
+  },
+  async "contact.delete"(b, admin) {
+    must(await db().from("contact_messages").delete().eq("id", uuid(b.id)));
+    await audit(admin, "contact.delete", { id: b.id });
+    return { ok: true };
+  },
+
+  async "jobs.list"() {
+    return { items: must(await db().from("bot_jobs").select("id,kind,payload,status,error,result,created_at,finished_at").order("created_at", { ascending: false }).limit(30)) };
+  },
+  async "job.retry"(b, admin) {
+    must(await db().from("bot_jobs").update({ status: "queued", error: null, finished_at: null }).eq("id", uuid(b.id)).eq("status", "failed").select("id").single());
+    await audit(admin, "job.retry", { id: b.id });
+    return { ok: true };
+  },
+  async "job.cancel"(b, admin) {
+    must(await db().from("bot_jobs").update({ status: "cancelled", finished_at: new Date().toISOString() }).eq("id", uuid(b.id)).eq("status", "queued").select("id").single());
+    await audit(admin, "job.cancel", { id: b.id });
+    return { ok: true };
+  },
+  async "entity.syncs"(b) {
+    return { items: must(await db().from("sync_log").select("result,changed,error,created_at").eq("entity_id", uuid(b.entity_id)).order("created_at", { ascending: false }).limit(8)) };
+  },
+
+  // بث إعلان لقنوات/جروبات المشروع التي يشرف عليها البوت: معاينة العدد ثم تأكيد. التنفيذ يتم في البوت بمعدل آمن.
+  async "broadcast.preview"() {
+    const t = must(await db().from("entities").select("name").eq("status", "active").eq("relationship", "own").eq("permission_state", "ok")
+      .in("entity_type", ["channel", "group"]).not("telegram_chat_id", "is", null).limit(500));
+    return { count: t.length, names: t.slice(0, 8).map((e) => e.name) };
+  },
+  async "broadcast.send"(b, admin) {
+    const message = longText(b.text, 3500);
+    if (!message || message.length < 3) throw new ValidationError("invalid_text");
+    must(await db().from("bot_jobs").insert({ kind: "broadcast", payload: { text: message, by: Number(admin.telegram_user_id) } }).select("id").single());
+    await audit(admin, "broadcast.send", { length: message.length });
+    return { ok: true };
   },
 
   async "zanati.ask"(b) {

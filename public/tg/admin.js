@@ -1,6 +1,7 @@
 // تطبيق لوحة التحكم (Telegram Web App). بلا مكتبات. كل نص يُعرض عبر textContent فقط.
 (function () {
   "use strict";
+  var BUILD = "4";
   var tg = window.Telegram && window.Telegram.WebApp;
   if (tg) { tg.ready(); tg.expand(); }
   var initData = (tg && tg.initData) || "";
@@ -11,7 +12,7 @@
     invalid_name: "الاسم غير صالح.", invalid_title: "العنوان يجب أن يكون بين 3 و120 حرفًا.", invalid_date: "التاريخ غير صالح.",
     relationship_required: "اختر علاقة الكيان بالمشروع.", duplicate_entity: "هذا الكيان موجود مسبقًا.", invalid_username: "اسم المستخدم غير صالح.",
     invalid_number: "الرقم غير صالح.", empty_session: "لم تُرسل أي رسالة للبوت بعد.", no_session: "لا توجد جلسة معاينة نشطة.",
-    nothing_to_update: "لا تغيير للحفظ.", too_many_lines: "القائمة أطول من الحد (200 سطر).", server_error: "خطأ في الخادم. حاول لاحقًا.", invalid_question: "السؤال فارغ أو أطول من 500 حرف.",
+    nothing_to_update: "لا تغيير للحفظ.", too_many_lines: "القائمة أطول من الحد (200 سطر).", server_error: "خطأ في الخادم. حاول لاحقًا.", invalid_question: "السؤال فارغ أو أطول من 500 حرف.", invalid_role: "دور غير صالح.", cannot_demote_self: "لا يمكنك إنقاص دور نفسك.", cannot_disable_self: "لا يمكنك إيقاف نفسك.", invalid_text: "النص قصير أو طويل جدًا.", invalid_id: "معرّف غير صالح.",
   };
   var REL = { own: "من مشروعنا", contribution: "مساهمة في مشروع", supported: "مشروع مدعوم" };
   var TYPE = { channel: "قناة", bot: "بوت", group: "جروب", sticker_pack: "ملصقات" };
@@ -125,7 +126,7 @@
     }));
     replace(root, h("div", { class: "app-shell" },
       h("header", { class: "header" }, h("img", { src: "/images/logo.png", alt: "", width: "30", height: "30", class: "header-logo" }),
-        h("h1", {}, "لوحة أثر أواب"), h("span", { class: "role" }, state.role)), main, nav));
+        h("h1", {}, "لوحة أثر أواب"), h("span", { class: "role" }, state.role + " · v" + BUILD)), main, nav));
   }
   function go(tab) { state.tab = tab; shell(); screens[tab](); }
   function loading() { replace(main, h("div", { class: "state-message" }, "جارٍ التحميل…")); }
@@ -142,18 +143,29 @@
     overview: function () {
       loading();
       api("overview").then(function (d) {
-        var chip = function (label, s) { return h("span", { class: "health-chip" }, h("span", { class: "dot " + (s === "healthy" ? "ok" : s === "stale" ? "bad" : "") }), label); };
-        replace(main, 
+        state.role = d._role;
+        var chip = function (label, st) { return h("span", { class: "health-chip" }, h("span", { class: "dot " + (st === "healthy" ? "ok" : st === "stale" ? "bad" : "") }), label); };
+        var sys = d.system, canAck = state.role !== "editor";
+        var aiUse = sys.ai.today.length ? sys.ai.today.map(function (x) { return x.level + ": " + x.calls; }).join("، ") : "لا استخدام اليوم";
+        main.textContent = "";
+        replace(main,
           h("div", { class: "health-row" }, chip("البوت: " + ({ healthy: "يعمل", stale: "متوقف", unknown: "لم يبدأ بعد" }[d.health.bot]), d.health.bot), chip("قاعدة البيانات: سليمة", "healthy")),
           h("div", { class: "stat-grid" }, [[d.pending, "بانتظار الموافقة"], [d.active, "كيان منشور"], [d.unreadMessages, "رسالة غير مقروءة"]].map(function (x) {
             return h("div", { class: "stat-box" }, h("div", { class: "n" }, x[0]), h("div", { class: "l" }, x[1]));
           })),
+          h("h3", { class: "section-title" }, "صحة النظام"),
+          [["آخر مزامنة ناجحة", sys.lastSyncAt ? new Date(sys.lastSyncAt).toLocaleString("en-GB") : "لم تتم بعد"], ["كيانات مزامنتها متعثرة", sys.failingSyncs], ["مهام بانتظار البوت", sys.queuedJobs],
+            ["مفاتيح Gemini المضبوطة", sys.ai.configured + " من 3"], ["استخدام الذكاء الاصطناعي اليوم", aiUse]].map(function (r) {
+            return h("div", { class: "mini-row" }, h("span", {}, r[0]), h("span", {}, String(r[1])));
+          }),
           h("h3", { class: "section-title" }, "تنبيهات مفتوحة"),
           d.alerts.length ? d.alerts.map(function (a) {
-            return h("div", { class: "list-row", style: "cursor:default" }, h("div", { class: "t" }, a.title), a.detail ? h("div", { class: "s" }, a.detail) : null);
+            return h("div", { class: "list-row", style: "cursor:default" }, h("div", { class: "t" }, [a.acknowledged ? h("span", { class: "pill" }, "معلوم") : null, a.title]), a.detail ? h("div", { class: "s" }, a.detail) : null,
+              canAck ? h("div", { class: "row-actions" }, h("button", { type: "button", onclick: function () { api("alert.ack", { key: a.key, ack: !a.acknowledged }).then(screens.overview, fail); } }, a.acknowledged ? "إلغاء «معلوم»" : "معلوم، لا تكرّر")) : null);
           }) : empty("لا تنبيهات مفتوحة."),
-          h("button", { class: "send-btn", style: "margin-top:20px", type: "button", onclick: function () {
-            api("sync.request").then(function () { toast("طُلبت المزامنة، سينفذها البوت خلال لحظات."); }, fail); } }, "مزامنة كل الكيانات الآن"));
+          h("div", { class: "sheet-actions", style: "margin-top:20px" },
+            h("button", { class: "btn-primary", type: "button", onclick: function () { api("sync.request").then(function () { toast("طُلبت المزامنة، سينفذها البوت خلال لحظات."); }, fail); } }, "مزامنة كل الكيانات"),
+            h("button", { class: "btn-ghost", type: "button", onclick: function () { analyticsSheet(7); } }, "الإحصاءات")));
       }, function (e) { replace(main, empty(ERR[e.code] || "تعذّر التحميل.")); });
     },
 
@@ -170,26 +182,33 @@
     },
 
     entities: function () {
-      var filter = { q: "", status: "", type: "" };
-      var list = h("div", {});
-      function load() {
-        replace(list, empty("جارٍ التحميل…"));
-        Promise.all([api("entities.list", filter), categories()]).then(function (r) {
-          replace(list, r[0].items.length ? r[0].items.map(function (e) {
-            return h("div", { class: "list-row", onclick: function () { editSheet(e, r[1]); } }, h("div", { class: "t" }, e.name),
-              h("div", { class: "s" }, [h("span", { class: "pill" }, TYPE[e.entity_type]), h("span", { class: "pill " + (e.status === "active" ? "ok" : "") }, STATUS[e.status]),
-                e.permission_state === "removed" || e.permission_state === "restricted" ? h("span", { class: "pill bad" }, "صلاحية البوت مفقودة") : null,
-                e.subscriber_count != null ? e.subscriber_count.toLocaleString("en-US") : ""]));
-          }) : empty("لا نتائج."));
+      var filter = { q: "", status: "", type: "" }, offset = 0, cats = [];
+      var list = h("div", {}), moreBtn = h("button", { class: "btn-ghost", type: "button", style: "width:100%;margin-top:14px", hidden: true }, "عرض المزيد");
+      function row(e) {
+        return h("div", { class: "list-row", onclick: function () { editSheet(e, cats); } }, h("div", { class: "t" }, e.name),
+          h("div", { class: "s" }, [h("span", { class: "pill" }, TYPE[e.entity_type]), h("span", { class: "pill " + (e.status === "active" ? "ok" : "") }, STATUS[e.status]),
+            e.permission_state === "removed" || e.permission_state === "restricted" ? h("span", { class: "pill bad" }, "صلاحية البوت مفقودة") : null,
+            !e.category_id && e.status === "active" ? h("span", { class: "pill warn" }, "بلا تصنيف") : null,
+            e.subscriber_count != null ? e.subscriber_count.toLocaleString("en-US") : ""]));
+      }
+      function load(reset) {
+        if (reset) { offset = 0; replace(list, empty("جارٍ التحميل…")); }
+        Promise.all([api("entities.list", Object.assign({ offset: offset }, filter)), categories()]).then(function (r) {
+          cats = r[1];
+          if (reset) list.textContent = "";
+          if (reset && !r[0].items.length) replace(list, empty("لا نتائج."));
+          r[0].items.forEach(function (e) { list.appendChild(row(e)); });
+          offset += r[0].items.length; moreBtn.hidden = !r[0].more;
         }, function (e) { replace(list, empty(ERR[e.code] || "تعذّر التحميل.")); });
       }
+      moreBtn.addEventListener("click", function () { load(false); });
       var q = h("input", { class: "search-input", type: "search", placeholder: "ابحث بالاسم" });
-      var t; q.addEventListener("input", function () { clearTimeout(t); t = setTimeout(function () { filter.q = q.value; load(); }, 350); });
+      var t; q.addEventListener("input", function () { clearTimeout(t); t = setTimeout(function () { filter.q = q.value; load(true); }, 350); });
       replace(main, q,
-        chips(Object.assign({ "": "كل الأنواع" }, TYPE), "", function (v) { filter.type = v; load(); }),
-        chips(Object.assign({ "": "كل الحالات" }, STATUS), "", function (v) { filter.status = v; load(); }),
-        h("button", { class: "send-btn", type: "button", onclick: function () { categories().then(createSheet); } }, "إضافة كيان يدويًا (بوت، ملصقات، قناة لا يديرها البوت)"), list);
-      load();
+        chips(Object.assign({ "": "كل الأنواع" }, TYPE), "", function (v) { filter.type = v; load(true); }),
+        chips(Object.assign({ "": "كل الحالات" }, STATUS), "", function (v) { filter.status = v; load(true); }),
+        h("button", { class: "send-btn", type: "button", onclick: function () { categories().then(createSheet); } }, "إضافة كيان يدويًا (بوت، ملصقات، قناة لا يديرها البوت)"), list, moreBtn);
+      load(true);
     },
 
     content: function () {
@@ -224,9 +243,16 @@
 
     more: function () {
       var item = function (label, fn) { return h("button", { class: "more-item", type: "button", onclick: fn }, label); };
-      replace(main, 
-        item("صورة الواجهة وعدد مستخدمي البوتات", settingsSheet), item("رسائل التواصل", function () { listSheet("رسائل التواصل", "contact.list", function (m) { return [m.name || "بلا اسم", (m.contact ? m.contact + " · " : "") + date(m.created_at) + "\n" + m.message]; }); }),
-        item("استيراد قائمة جاهزة (قنوات/بوتات/مواقع/حسابات)", importSheet), item("بحث عن مستخدم بالبوت", usersSheet), item("سجل التدقيق", function () { listSheet("سجل التدقيق", "audit.list", function (a) { return [a.action, date(a.created_at) + " · " + a.admin_id]; }); }));
+      replace(main,
+        item("الإحصاءات (الزيارات والنقرات والبحث)", function () { analyticsSheet(7); }),
+        item("بث إعلان لقنوات وجروبات المشروع", broadcastSheet),
+        item("المهام والمزامنة", jobsSheet),
+        item("رسائل التواصل", contactSheet),
+        item("مستخدمو البوت", usersSheet),
+        item("المشرفون وصلاحياتهم", adminsSheet),
+        item("استيراد قائمة جاهزة (روابط/قنوات/بوتات/مواقع/حسابات)", importSheet),
+        item("صورة الواجهة وعدد مستخدمي البوتات", settingsSheet),
+        item("سجل التدقيق", function () { listSheet("سجل التدقيق", "audit.list", function (a) { return [a.action, date(a.created_at) + " · " + a.admin_id]; }); }));
     },
   };
 
@@ -295,7 +321,8 @@
     var rest = h("div", { style: "margin-top:14px" },
       h("div", { class: "sheet-actions" },
         h("button", { class: "btn-ghost", type: "button", onclick: function () { previewSheet(e); } }, "معاينة تيليجرام"),
-        h("button", { class: "btn-ghost", type: "button", onclick: function () { api("sync.request", { entity_id: e.id }).then(function () { toast("طُلبت المزامنة."); }, fail); } }, "مزامنة")),
+        h("button", { class: "btn-ghost", type: "button", onclick: function () { api("sync.request", { entity_id: e.id }).then(function () { toast("طُلبت المزامنة."); }, fail); } }, "مزامنة"),
+        h("button", { class: "btn-ghost", type: "button", onclick: function () { syncLogSheet(e); } }, "سجل المزامنة")),
       e.name_locked || e.desc_locked ? h("p", { class: "hint" }, "الاسم/الوصف المعدَّلان يدويًا لا تكتب فوقهما المزامنة.") : null);
     formSheet("تعديل: " + e.name, [
       { key: "name", label: "الاسم", value: e.name }, { key: "short_description", label: "وصف قصير", value: e.short_description },
@@ -454,17 +481,132 @@
     s.appendChild(out);
   }
   function usersSheet() {
-    var s = openSheet("بحث عن مستخدم"), out = h("div", {});
+    var s = openSheet("مستخدمو البوت"), out = h("div", {});
     var q = h("input", { class: "search-input", type: "search", placeholder: "المعرّف الرقمي أو اسم المستخدم أو الاسم" });
-    var t; q.addEventListener("input", function () { clearTimeout(t); t = setTimeout(function () {
+    function search() {
       api("users.search", { q: q.value }).then(function (r) {
         replace(out, r.items.length ? r.items.map(function (u) {
-          return h("div", { class: "list-row", style: "cursor:default" }, h("div", { class: "t" }, [u.first_name || "", " ", u.last_name || ""]),
+          return h("div", { class: "list-row", onclick: function () { userSheet(u); } }, h("div", { class: "t" }, [u.first_name || "", " ", u.last_name || ""]),
             h("div", { class: "s" }, ["@" + (u.username || "-"), " · " + u.telegram_user_id, " · إحالات " + u.referrals_count, u.has_badge ? " · شارة" : "", u.is_banned ? " · محظور" : ""]));
-        }) : empty(q.value ? "لا نتائج." : ""));
-      }, fail); }, 350); });
-    s.appendChild(q); s.appendChild(out);
+        }) : empty(q.value ? "لا نتائج." : "اكتب للبحث. تيليجرام لا يوفر قائمة كاملة بمستخدمي البوت؛ المسجلون هم من بدأوا محادثة معه."));
+      }, fail);
+    }
+    var t; q.addEventListener("input", function () { clearTimeout(t); t = setTimeout(search, 350); });
+    s.appendChild(q); s.appendChild(out); search();
     s.appendChild(h("button", { class: "btn-ghost", type: "button", style: "margin-top:14px;width:100%", onclick: closeSheet }, "إغلاق"));
+  }
+  function userSheet(u) {
+    formSheet("مستخدم: " + (u.first_name || u.telegram_user_id), [
+      { key: "is_banned", label: "محظور من استعمال البوت (الحظر داخل المحادثات من أمر /globalban في البوت)", type: "toggle", value: u.is_banned },
+      { key: "notes", label: "ملاحظات (للأدمن فقط)", type: "textarea", value: u.notes },
+    ], "حفظ", function (v) { return api("user.update", { telegram_user_id: u.telegram_user_id, is_banned: v.is_banned, notes: v.notes }).then(function () { toast("تم الحفظ."); usersSheet(); }); });
+  }
+
+  function contactSheet() {
+    var s = openSheet("رسائل التواصل");
+    function load() {
+      api("contact.list").then(function (r) {
+        replace(s, h("h3", {}, "رسائل التواصل"), r.items.length ? r.items.map(function (m) {
+          return h("div", { class: "list-row answer", style: "cursor:default" }, h("div", { class: "t" }, [m.is_read ? null : h("span", { class: "pill warn" }, "جديدة"), m.name || "بلا اسم"]),
+            h("div", { class: "s" }, (m.contact ? m.contact + " · " : "") + date(m.created_at) + "\n" + m.message),
+            h("div", { class: "row-actions" },
+              h("button", { type: "button", onclick: function () { api("contact.mark", { id: m.id, read: !m.is_read }).then(load, fail); } }, m.is_read ? "اجعلها غير مقروءة" : "تمّت القراءة"),
+              h("button", { type: "button", onclick: function () { if (confirm("حذف الرسالة نهائيًا؟")) api("contact.delete", { id: m.id }).then(load, fail); } }, "حذف")));
+        }) : empty("لا رسائل."), h("button", { class: "btn-ghost", type: "button", style: "margin-top:14px;width:100%", onclick: closeSheet }, "إغلاق"));
+      }, function (e) { closeSheet(); fail(e); });
+    }
+    replace(s, empty("جارٍ التحميل…")); load();
+  }
+
+  function jobsSheet() {
+    var s = openSheet("المهام والمزامنة");
+    var ST = { queued: "بالانتظار", running: "قيد التنفيذ", done: "تمّت", failed: "فشلت", cancelled: "أُلغيت" };
+    function load() {
+      api("jobs.list").then(function (r) {
+        replace(s, h("h3", {}, "المهام والمزامنة"), h("p", { class: "hint" }, "طلبات المزامنة والبث التي يضعها الموقع وينفذها البوت. إن بقيت «بالانتظار» طويلًا فالبوت متوقف."),
+          r.items.length ? r.items.map(function (j) {
+            var res = j.result ? " · " + Object.keys(j.result).map(function (k) { return k + ": " + j.result[k]; }).join("، ") : "";
+            return h("div", { class: "list-row", style: "cursor:default" }, h("div", { class: "t" }, [h("span", { class: "pill " + (j.status === "done" ? "ok" : j.status === "failed" ? "bad" : "") }, ST[j.status]), j.kind === "broadcast" ? "بث إعلان" : "مزامنة" + (j.payload && j.payload.entity_id ? " (كيان واحد)" : " (الكل)")]),
+              h("div", { class: "s" }, date(j.created_at) + res + (j.error ? " · " + j.error : "")),
+              j.status === "failed" || j.status === "queued" ? h("div", { class: "row-actions" }, j.status === "failed" ? h("button", { type: "button", onclick: function () { api("job.retry", { id: j.id }).then(load, fail); } }, "إعادة المحاولة") : null,
+                j.status === "queued" ? h("button", { type: "button", onclick: function () { api("job.cancel", { id: j.id }).then(load, fail); } }, "إلغاء") : null) : null);
+          }) : empty("لا مهام بعد."), h("button", { class: "btn-ghost", type: "button", style: "margin-top:14px;width:100%", onclick: closeSheet }, "إغلاق"));
+      }, function (e) { closeSheet(); fail(e); });
+    }
+    replace(s, empty("جارٍ التحميل…")); load();
+  }
+
+  function syncLogSheet(e) {
+    var s = openSheet("سجل مزامنة: " + e.name);
+    api("entity.syncs", { entity_id: e.id }).then(function (r) {
+      replace(s, h("h3", {}, "سجل مزامنة: " + e.name), r.items.length ? r.items.map(function (l) {
+        return h("div", { class: "mini-row" }, h("span", {}, new Date(l.created_at).toLocaleString("en-GB")),
+          h("span", {}, l.result === "error" ? "فشل: " + (l.error || "") : l.result === "changed" ? "تغيّر: " + (l.changed || []).join("، ") : "بلا تغيير"));
+      }) : empty("لا سجل بعد. الكيانات بلا chat_id لا تُزامَن حتى يربطها البوت."), h("button", { class: "btn-ghost", type: "button", style: "margin-top:14px;width:100%", onclick: closeSheet }, "إغلاق"));
+    }, function (er) { closeSheet(); fail(er); });
+  }
+
+  function adminsSheet() {
+    var s = openSheet("المشرفون");
+    var ROLE = { owner: "مالك (كل شيء)", admin: "أدمن (إعدادات ومستخدمون وبث)", editor: "محرر (محتوى وكيانات)" };
+    function load() {
+      api("admins.list").then(function (r) {
+        replace(s, h("h3", {}, "المشرفون وصلاحياتهم"),
+          r.items.map(function (a) {
+            return h("div", { class: "list-row", style: "cursor:default" }, h("div", { class: "t" }, [h("span", { class: "pill " + (a.is_active ? "ok" : "bad") }, a.is_active ? "فعّال" : "موقوف"), a.name || a.telegram_user_id]),
+              h("div", { class: "s" }, a.telegram_user_id + " · " + ROLE[a.role]),
+              h("div", { class: "row-actions" }, h("button", { type: "button", onclick: function () { adminForm(a); } }, "تعديل"),
+                h("button", { type: "button", onclick: function () { api("admin.toggle", { telegram_user_id: a.telegram_user_id, active: !a.is_active }).then(load, fail); } }, a.is_active ? "إيقاف" : "تفعيل")));
+          }),
+          h("button", { class: "send-btn", type: "button", style: "margin-top:14px", onclick: function () { adminForm(null); } }, "إضافة مشرف"),
+          h("button", { class: "btn-ghost", type: "button", style: "width:100%", onclick: closeSheet }, "إغلاق"));
+      }, function (e) { closeSheet(); fail(e.code === "forbidden" ? { code: "forbidden" } : e); });
+    }
+    function adminForm(a) {
+      formSheet(a ? "تعديل مشرف" : "إضافة مشرف", [
+        { key: "telegram_user_id", label: "المعرّف الرقمي في تيليجرام (يعرفه من @userinfobot)", value: a && a.telegram_user_id },
+        { key: "name", label: "الاسم", value: a && a.name }, { key: "role", label: "الدور", type: "chips", options: ROLE, value: a ? a.role : "editor" },
+      ], "حفظ", function (v) { return api("admin.upsert", { telegram_user_id: Number(v.telegram_user_id), name: v.name, role: v.role }).then(function () { toast("تم الحفظ."); adminsSheet(); }); });
+    }
+    replace(s, empty("جارٍ التحميل…")); load();
+  }
+
+  function broadcastSheet() {
+    var s = openSheet("بث إعلان");
+    api("broadcast.preview").then(function (p) {
+      var ta = h("textarea", { class: "search-input", rows: "6", maxlength: "3500", placeholder: "نص الإعلان (نص عادي)" });
+      var go = h("button", { class: "btn-primary", type: "button" }, "إرسال الإعلان");
+      go.addEventListener("click", function () {
+        if (ta.value.trim().length < 3) return;
+        if (!confirm("سيُرسل هذا النص إلى " + p.count + " محادثة. متأكد؟")) return;
+        go.disabled = true;
+        api("broadcast.send", { text: ta.value }).then(function () { toast("وُضع البث في الطابور، وسيصلك تقرير من البوت."); closeSheet(); }, function (e) { go.disabled = false; fail(e); });
+      });
+      replace(s, h("h3", {}, "بث إعلان"),
+        h("p", { class: "hint" }, p.count ? "سيصل إلى " + p.count + " قناة/جروب «من مشروعنا» يشرف عليها البوت" + (p.names.length ? " (منها: " + p.names.join("، ") + ")" : "") + ". يُرسل بمعدل آمن، ثم يصلك تقرير النجاح والفشل." : "لا توجد قنوات/جروبات «من مشروعنا» يشرف عليها البوت حاليًا. تأكد من العلاقة وصلاحية البوت."),
+        ta, h("div", { class: "sheet-actions", style: "margin-top:14px" }, p.count ? go : null, h("button", { class: "btn-ghost", type: "button", onclick: closeSheet }, "إغلاق")));
+    }, function (e) { closeSheet(); fail(e); });
+  }
+
+  function analyticsSheet(days) {
+    var s = openSheet("الإحصاءات");
+    api("analytics.get", { days: days }).then(function (r) {
+      var delta = function (cur, prev) { return prev ? (cur >= prev ? "+" : "") + (Math.round((cur - prev) / prev * 1000) / 10) + "% عن الفترة السابقة" : "لا أساس للمقارنة"; };
+      var max = Math.max.apply(null, [1].concat(r.daily.map(function (d) { return d.views; })));
+      var list = function (items, key, val) { return items.length ? items.map(function (x) { return h("div", { class: "mini-row" }, h("span", {}, x[key]), h("span", {}, Number(x[val]).toLocaleString("en-US"))); }) : empty("لا بيانات بعد."); };
+      replace(s, h("h3", {}, "الإحصاءات"),
+        chips({ 7: "7 أيام", 30: "30 يومًا", 90: "90 يومًا" }, String(r.days), function (v) { analyticsSheet(Number(v)); }),
+        h("div", { class: "stat-grid", style: "grid-template-columns:repeat(2,1fr)" },
+          h("div", { class: "stat-box" }, h("div", { class: "n" }, Number(r.views).toLocaleString("en-US")), h("div", { class: "l" }, "زيارات الصفحات"), h("div", { class: "l" }, delta(r.views, r.views_prev))),
+          h("div", { class: "stat-box" }, h("div", { class: "n" }, Number(r.clicks).toLocaleString("en-US")), h("div", { class: "l" }, "نقرات «انضم إلى تيليجرام»"), h("div", { class: "l" }, delta(r.clicks, r.clicks_prev)))),
+        h("h3", { class: "section-title" }, "الزيارات يوميًا"),
+        r.daily.length ? h("div", { class: "bars", role: "img", "aria-label": "الزيارات اليومية" }, r.daily.map(function (d) { return h("div", { class: "bar", title: d.day + ": " + d.views, style: "height:" + Math.max(4, Math.round(d.views / max * 100)) + "%" }); })) : empty("لا زيارات مسجلة بعد."),
+        h("h3", { class: "section-title" }, "أكثر الصفحات"), list(r.top_pages, "path", "views"),
+        h("h3", { class: "section-title" }, "أكثر الكيانات نقرًا"), list(r.top_entities, "name", "clicks"),
+        h("h3", { class: "section-title" }, "بحث بلا نتائج (فرص محتوى)"), list(r.search_misses, "term", "hits"),
+        h("p", { class: "hint" }, "الإحصاءات عدّادات يومية مجهولة بلا عناوين IP. لا تتضمن الدول أو الأجهزة في هذه النسخة."),
+        h("button", { class: "btn-ghost", type: "button", style: "margin-top:10px;width:100%", onclick: closeSheet }, "إغلاق"));
+    }, function (e) { closeSheet(); fail(e); });
   }
 
   // ---- البدء ----

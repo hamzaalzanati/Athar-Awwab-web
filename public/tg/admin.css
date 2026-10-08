@@ -146,3 +146,8 @@ textarea.search-input { resize: vertical; }
 .pill.warn { color: var(--warn); border-color: var(--warn); }
 .pill.bad { color: var(--bad); border-color: var(--bad); }
 .pill.ok { color: var(--ok); border-color: var(--ok); }
+
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 90px; padding: 6px 0; }
+.bar { flex: 1; min-width: 3px; background: var(--accent); border-radius: 2px 2px 0 0; opacity: .85; }
+.row-actions button { margin-top: 0; }
+.pill.warn { color: var(--warn); border-color: var(--warn); }
